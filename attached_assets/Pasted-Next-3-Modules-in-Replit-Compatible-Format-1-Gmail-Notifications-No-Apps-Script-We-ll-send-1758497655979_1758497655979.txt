@@ -1,0 +1,157 @@
+Next 3 Modules — in Replit-Compatible Format:
+🧩 1. Gmail Notifications (No Apps Script)
+
+We’ll send emails using your Gmail account + App Password via smtplib. No need for Apps Script or external tools.
+
+🔐 Prerequisite:
+
+Create a Gmail App Password instructions here
+.
+
+Store in .env:
+
+GMAIL_EMAIL=your_email@gmail.com
+GMAIL_APP_PASSWORD=your_app_password
+
+📄 email_utils.py
+import smtplib
+import os
+from email.mime.text import MIMEText
+from dotenv import load_dotenv
+
+load_dotenv()
+
+def send_gmail(to_email, subject, body):
+    from_email = os.getenv("GMAIL_EMAIL")
+    password = os.getenv("GMAIL_APP_PASSWORD")
+
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = from_email
+    msg["To"] = to_email
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(from_email, password)
+            server.sendmail(from_email, [to_email], msg.as_string())
+        print("✅ Email sent")
+    except Exception as e:
+        print("❌ Email failed:", e)
+
+✅ Example Usage (inside main.py)
+from email_utils import send_gmail
+
+send_gmail(
+    to_email="client@example.com",
+    subject="Your Dispute Letters Were Sent",
+    body="Hi John, your dispute letters were mailed today. You’ll receive a status update in 30–45 days."
+)
+
+📤 2. Credit Repair Cloud (CRC) Push Endpoint
+
+CRC uses XML over HTTP POST. Here’s how to create a module to push client updates from your app.
+
+🔐 .env
+CRC_API_KEY=your_crc_key
+CRC_SECRET_KEY=your_crc_secret
+
+📄 crc_api.py
+import requests
+import os
+from xml.etree.ElementTree import Element, tostring
+from dotenv import load_dotenv
+
+load_dotenv()
+
+CRC_API_KEY = os.getenv("CRC_API_KEY")
+CRC_SECRET_KEY = os.getenv("CRC_SECRET_KEY")
+
+def push_to_crc(client_id, status, notes):
+    url = "https://api.creditrepaircloud.com/v1/client/update"
+    xml_data = f"""
+    <request>
+        <client_id>{client_id}</client_id>
+        <status>{status}</status>
+        <notes>{notes}</notes>
+    </request>
+    """
+
+    payload = {
+        "apikey": CRC_API_KEY,
+        "secretkey": CRC_SECRET_KEY,
+        "xml": xml_data
+    }
+
+    try:
+        res = requests.post(url, data=payload)
+        print("✅ CRC Push:", res.status_code)
+        return res.status_code, res.text
+    except Exception as e:
+        print("❌ CRC Error:", e)
+
+✅ Example Usage
+from crc_api import push_to_crc
+
+push_to_crc(
+    client_id="12345",
+    status="Dispute Sent – Cycle 1",
+    notes="3 bureau letters sent via Click2Mail on 2025-09-21"
+)
+
+🧠 3. Real Rule Engine — Metro2 + FCRA
+
+Let’s add a basic legal rule checker based on industry standards + law.
+
+📄 metro2_rules.py (Upgrade)
+def analyze_report(file_bytes):
+    # Simulate parsed JSON (in real code you'd parse PDF or input JSON)
+    parsed = {
+        "tradelines": [
+            {
+                "bureau": "Equifax",
+                "account": "CAP1 ****1234",
+                "status": "Charged Off",
+                "balance": 1234,
+                "pay_status": "120",
+                "DOFD": None,
+                "payment_history": "OK,OK,30,60,90,120,CO",
+            }
+        ]
+    }
+
+    findings = []
+
+    for tradeline in parsed["tradelines"]:
+        if not tradeline["DOFD"]:
+            findings.append({
+                "bureau": tradeline["bureau"],
+                "account": tradeline["account"],
+                "issue": "Missing Date of First Delinquency (DOFD)",
+                "statutes": ["FCRA §1681e(b)", "§1681c"],
+                "severity": "high"
+            })
+
+        if tradeline["status"] == "Charged Off" and tradeline["balance"] > 0:
+            findings.append({
+                "bureau": tradeline["bureau"],
+                "account": tradeline["account"],
+                "issue": "Charged-off account still reporting balance",
+                "statutes": ["FCRA §1681s-2(b)", "FDCPA §1692e"],
+                "severity": "medium"
+            })
+
+    return findings
+
+✅ What You Can Now Do in Replit:
+
+Upload a credit report via /analyze-report
+
+Bot checks Metro2 and FCRA logic
+
+Generates letters (PDFs)
+
+Sends via Click2Mail API
+
+Notifies client by Gmail
+
+Pushes summary into CRC
