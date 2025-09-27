@@ -300,8 +300,9 @@ export class DatabaseStorage implements IStorage {
   }> {
     const allUsers = await this.getAllUsers();
     const totalUsers = allUsers.length;
+    const diySubscribers = allUsers.filter(user => user.plan === "DIY").length;
     const proSubscribers = allUsers.filter(user => user.plan === "DONE_FOR_YOU").length;
-    const monthlyRevenue = proSubscribers * 149.99; // $149.99 per pro subscriber
+    const monthlyRevenue = (diySubscribers * 19.95) + (proSubscribers * 149.99); // $19.95 per DIY + $149.99 per pro subscriber
     
     // Count sent letters
     const sentLetters = await db

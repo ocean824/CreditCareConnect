@@ -29,8 +29,8 @@ export default function Landing() {
           <Card className="bg-white/95 backdrop-blur-sm" data-testid="plan-diy">
             <CardHeader className="text-center">
               <CardTitle className="text-xl">DIY Mode</CardTitle>
-              <div className="text-3xl font-bold text-muted-foreground">FREE</div>
-              <CardDescription>Perfect for getting started</CardDescription>
+              <div className="text-3xl font-bold text-muted-foreground">$19.95</div>
+              <CardDescription>per month</CardDescription>
             </CardHeader>
             <CardContent>
               <ul className="space-y-3 mb-6">
@@ -56,7 +56,7 @@ export default function Landing() {
                 onClick={handleLogin}
                 data-testid="button-start-free"
               >
-                Get Started Free
+                Start DIY Plan
               </Button>
             </CardContent>
           </Card>
@@ -186,10 +186,10 @@ export default function Landing() {
             onClick={handleLogin}
             data-testid="button-get-started-main"
           >
-            Get Started Today - It's Free!
+            Get Started Today
           </Button>
           <p className="text-white/80 text-sm mt-4">
-            No credit card required • Start improving your credit score today
+            Start improving your credit score today
           </p>
         </div>
       </div>
