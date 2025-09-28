@@ -69,9 +69,9 @@ export async function analyzeCreditReport(reportText: string): Promise<{
       violations: result.violations || [],
       summary: result.summary || "Credit report analysis completed."
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error analyzing credit report:", error);
-    throw new Error("Failed to analyze credit report: " + error.message);
+    throw new Error("Failed to analyze credit report: " + (error?.message || "Unknown error"));
   }
 }
 
@@ -107,7 +107,7 @@ export async function generateDisputeLetter(
     SSN: XXX-XX-${clientInfo.ssnLast4}
     
     Bureau Address:
-    ${bureauAddresses[bureau] || bureauAddresses.EQUIFAX}
+    ${bureauAddresses[bureau as keyof typeof bureauAddresses] || bureauAddresses.EQUIFAX}
     
     Violations to dispute:
     ${violations.map((v, i) => `${i + 1}. ${v.accountName}: ${v.description} (${v.statute})`).join('\n')}
@@ -138,9 +138,9 @@ export async function generateDisputeLetter(
     });
 
     return response.choices[0].message.content || "";
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating dispute letter:", error);
-    throw new Error("Failed to generate dispute letter: " + error.message);
+    throw new Error("Failed to generate dispute letter: " + (error?.message || "Unknown error"));
   }
 }
 
@@ -177,9 +177,9 @@ export async function chatWithAI(
     });
 
     return response.choices[0].message.content || "I apologize, but I couldn't generate a response. Please try again.";
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error in AI chat:", error);
-    throw new Error("Failed to process chat message: " + error.message);
+    throw new Error("Failed to process chat message: " + (error?.message || "Unknown error"));
   }
 }
 
@@ -230,8 +230,8 @@ export async function generateCFPBComplaint(
       complaintText: result.complaintText || "",
       caseLawCitations: result.caseLawCitations || []
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating CFPB complaint:", error);
-    throw new Error("Failed to generate CFPB complaint: " + error.message);
+    throw new Error("Failed to generate CFPB complaint: " + (error?.message || "Unknown error"));
   }
 }
