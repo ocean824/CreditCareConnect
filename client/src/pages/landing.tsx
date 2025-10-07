@@ -81,7 +81,7 @@ export default function Landing() {
                 </li>
                 <li className="flex items-center text-sm">
                   <CheckCircle className="w-4 h-4 text-green-500 mr-3" />
-                  Auto-mail via Click2Mail
+                  Auto-mail Certified Letters
                 </li>
                 <li className="flex items-center text-sm">
                   <CheckCircle className="w-4 h-4 text-green-500 mr-3" />
