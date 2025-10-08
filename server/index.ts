@@ -1,10 +1,17 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import "./scheduler";
 import { setupVite, serveStatic, log } from "./vite";
+import path from "path";
+import fs from "fs";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+const FILES_DIR = process.env.FILES_DIR || path.join(process.cwd(), "files");
+if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
+app.use("/files", express.static(FILES_DIR));
 
 app.use((req, res, next) => {
   const start = Date.now();

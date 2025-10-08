@@ -8,6 +8,15 @@ import { letterGeneratorService } from "./services/letterGenerator";
 import { notificationService } from "./services/notificationService";
 import { insertCreditReportSchema, insertViolationSchema, insertDisputeLetterSchema, insertChatConversationSchema, insertCfpbComplaintSchema } from "@shared/schema";
 import { createPaypalOrder, capturePaypalOrder, loadPaypalDefault } from "./paypal";
+import crypto from "crypto";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import { mintActionToken, verifyAndConsumeToken } from "./oneTimeToken";
+import { clientResponses, mailBatches, users, deliveryEvents } from "@shared/schema";
+import { db } from "./db";
+import { ocrPdfOrImage, ollamaGenerate } from "./ocr";
+import { eq } from "drizzle-orm";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -431,6 +440,144 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching users:", error);
       res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  // One-time token routes for client responses
+  const upload = multer({ dest: process.env.FILES_DIR || "./files" });
+
+  app.get('/notify/answer', async (req, res) => {
+    try {
+      const token = req.query.token as string;
+      const row = await verifyAndConsumeToken(token);
+      
+      const answer = row.purpose.includes("yes") ? "YES" : "NO";
+      await db.insert(clientResponses).values({
+        id: crypto.randomUUID(),
+        clientId: row.clientId,
+        caseId: row.caseId,
+        round: 1,
+        fileUrl: `response:${answer}`,
+        ocrText: answer,
+        createdAt: new Date()
+      });
+
+      res.send(`<h2>Thanks! Your answer (${answer}) has been recorded.</h2>`);
+    } catch (err: any) {
+      res.status(400).send(`<h2>Error: ${err.message}</h2>`);
+    }
+  });
+
+  app.get('/notify/upload', async (req, res) => {
+    const token = req.query.token as string;
+    if (!token) return res.status(400).send("Missing token");
+    
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>Upload Bureau Response</title></head>
+      <body>
+        <h2>Upload your bureau response letter</h2>
+        <form method="POST" action="/notify/upload" enctype="multipart/form-data">
+          <input type="hidden" name="token" value="${token}" />
+          <input type="file" name="letter" accept="image/*,application/pdf" required />
+          <button type="submit">Upload</button>
+        </form>
+      </body>
+      </html>
+    `);
+  });
+
+  app.post('/notify/upload', upload.single('letter'), async (req: any, res) => {
+    try {
+      const token = req.body.token;
+      const row = await verifyAndConsumeToken(token);
+      
+      if (!req.file) {
+        return res.status(400).send("No file uploaded");
+      }
+
+      const fileUrl = `/files/${req.file.filename}`;
+      const absPath = req.file.path;
+
+      // OCR the uploaded file
+      const ocrText = await ocrPdfOrImage(absPath);
+
+      // Analyze with Ollama (optional, can be skipped if Ollama not running)
+      let analysisJson: any = null;
+      try {
+        const prompt = `Analyze this bureau letter response and extract key information:\n\n${ocrText}`;
+        const analysisText = await ollamaGenerate("mistral", prompt);
+        analysisJson = { analysis: analysisText };
+      } catch (e) {
+        console.log("Ollama not available, skipping AI analysis");
+      }
+
+      // Save to database
+      await db.insert(clientResponses).values({
+        id: crypto.randomUUID(),
+        clientId: row.clientId,
+        caseId: row.caseId,
+        round: 1,
+        fileUrl,
+        ocrText,
+        analysisJson,
+        createdAt: new Date()
+      });
+
+      res.send(`<h2>Upload successful! We'll analyze your response and follow up soon.</h2>`);
+    } catch (err: any) {
+      res.status(400).send(`<h2>Error: ${err.message}</h2>`);
+    }
+  });
+
+  // Click2Mail webhook
+  app.post('/webhooks/click2mail', async (req, res) => {
+    try {
+      const { jobId, event, tracking, proofUrl } = req.body;
+      
+      // Find the mail batch
+      const batches = await db.select().from(mailBatches).where(eq(mailBatches.click2mailJobId, jobId));
+      const batch = batches[0];
+      
+      if (batch) {
+        // Record delivery event
+        await db.insert(deliveryEvents).values({
+          id: crypto.randomUUID(),
+          batchId: batch.id,
+          kind: event,
+          payload: req.body,
+          createdAt: new Date()
+        });
+
+        // Update batch status and tracking info
+        const updates: any = {};
+        if (tracking) updates.uspsTracking = tracking;
+        if (proofUrl) updates.proofUrl = proofUrl;
+        if (event === "delivered") updates.status = "delivered";
+        else if (event === "in_transit") updates.status = "in_transit";
+
+        if (Object.keys(updates).length > 0) {
+          await db.update(mailBatches).set(updates).where(eq(mailBatches.id, batch.id));
+        }
+
+        // Notify client if delivered with proof
+        if (proofUrl && batch.clientId) {
+          const client = (await db.select().from(users).where(eq(users.id, batch.clientId)))[0];
+          if (client?.email) {
+            await notificationService.sendEmail(
+              client.email,
+              "Dispute Letter Delivered",
+              `Your dispute letter to ${batch.bureau} has been delivered. <a href="${proofUrl}">View proof of delivery</a>`
+            );
+          }
+        }
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Click2Mail webhook error:", err);
+      res.status(500).json({ error: err.message });
     }
   });
 

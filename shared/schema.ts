@@ -167,3 +167,45 @@ export const insertCfpbComplaintSchema = createInsertSchema(cfpbComplaints).omit
 });
 export type InsertCfpbComplaint = z.infer<typeof insertCfpbComplaintSchema>;
 export type CfpbComplaint = typeof cfpbComplaints.$inferSelect;
+
+// --- MAIL & FOLLOW-UP FLOW TABLES ---
+export const mailBatches = pgTable("mail_batches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull().references(() => users.id),
+  caseId: varchar("case_id").notNull(),
+  bureau: varchar("bureau").notNull(),
+  round: integer("round").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  click2mailJobId: varchar("click2mail_job_id"),
+  uspsTracking: varchar("usps_tracking"),
+  proofUrl: text("proof_url"),
+  status: varchar("status").notNull().default("queued")
+});
+
+export const deliveryEvents = pgTable("delivery_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  batchId: varchar("batch_id").notNull().references(() => mailBatches.id),
+  kind: varchar("kind").notNull(),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").defaultNow()
+});
+
+export const actionTokens = pgTable("action_tokens", {
+  token: varchar("token").primaryKey(),
+  clientId: varchar("client_id").notNull().references(() => users.id),
+  caseId: varchar("case_id").notNull(),
+  purpose: varchar("purpose").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").notNull().default(false)
+});
+
+export const clientResponses = pgTable("client_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull().references(() => users.id),
+  caseId: varchar("case_id").notNull(),
+  round: integer("round").notNull(),
+  fileUrl: text("file_url").notNull(),
+  ocrText: text("ocr_text"),
+  analysisJson: jsonb("analysis_json"),
+  createdAt: timestamp("created_at").defaultNow()
+});
