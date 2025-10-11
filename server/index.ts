@@ -46,6 +46,25 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // Admin bootstrap: promote users in ADMIN_EMAILS to admin role
+  if (process.env.ADMIN_EMAILS) {
+    const { db } = await import("@db");
+    const { users } = await import("@shared/schema");
+    const { eq } = await import("drizzle-orm");
+    
+    const adminEmails = process.env.ADMIN_EMAILS.split(',').map(e => e.trim());
+    for (const email of adminEmails) {
+      try {
+        await db.update(users)
+          .set({ role: 'admin' })
+          .where(eq(users.email, email));
+        log(`Promoted ${email} to admin`);
+      } catch (e) {
+        // User might not exist yet, will be promoted on login
+      }
+    }
+  }
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

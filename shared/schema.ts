@@ -32,6 +32,7 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   plan: varchar("plan").default("DIY").notNull(), // DIY, DONE_FOR_YOU, ENTERPRISE
+  role: varchar("role", { length: 10 }).notNull().default("user"), // user, admin
   paypalCustomerId: varchar("paypal_customer_id"),
   paypalSubscriptionId: varchar("paypal_subscription_id"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -207,5 +208,15 @@ export const clientResponses = pgTable("client_responses", {
   fileUrl: text("file_url").notNull(),
   ocrText: text("ocr_text"),
   analysisJson: jsonb("analysis_json"),
+  createdAt: timestamp("created_at").defaultNow()
+});
+
+export const adminAuditLogs = pgTable("admin_audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  actorId: varchar("actor_id").notNull().references(() => users.id),
+  action: varchar("action").notNull(),
+  targetType: varchar("target_type").notNull(),
+  targetId: varchar("target_id").notNull(),
+  meta: jsonb("meta"),
   createdAt: timestamp("created_at").defaultNow()
 });
