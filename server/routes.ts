@@ -17,6 +17,7 @@ import { clientResponses, mailBatches, users, deliveryEvents } from "@shared/sch
 import { db } from "./db";
 import { ocrPdfOrImage, ollamaGenerate } from "./ocr";
 import { eq } from "drizzle-orm";
+import { adminRouter } from "./adminRoutes";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -31,6 +32,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Client self-info (with role for RBAC)
+  app.get('/api/me', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json({
+        id: user.id,
+        email: user.email,
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+        role: user.role || 'user'
+      });
+    } catch (error) {
+      console.error("Error fetching user info:", error);
+      res.status(500).json({ message: "Failed to fetch user info" });
     }
   });
 
@@ -580,6 +601,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Mount admin routes
+  app.use('/api/admin', adminRouter);
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {
