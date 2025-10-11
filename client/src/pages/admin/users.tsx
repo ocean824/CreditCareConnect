@@ -15,10 +15,7 @@ export default function AdminUsers() {
 
   const updateRoleMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
-      return await apiRequest(`/api/admin/users/${userId}/role`, {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      });
+      return await apiRequest('PUT', `/api/admin/users/${userId}/role`, { role });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
@@ -58,7 +55,7 @@ export default function AdminUsers() {
         <Card>
           <CardContent className="p-6">
             <div className="space-y-4">
-              {users?.map((user: any) => (
+              {(users as any[])?.map((user: any) => (
                 <div
                   key={user.id}
                   className="flex items-center justify-between p-4 border border-border rounded-lg"

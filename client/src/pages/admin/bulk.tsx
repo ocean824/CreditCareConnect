@@ -17,10 +17,8 @@ export default function AdminBulk() {
 
   const bulkRemindMutation = useMutation({
     mutationFn: async (batchIds: string[]) => {
-      return await apiRequest('/api/admin/cases/bulk-remind-day34', {
-        method: 'POST',
-        body: JSON.stringify({ batchIds }),
-      });
+      const res = await apiRequest('POST', '/api/admin/cases/bulk-remind-day34', { batchIds });
+      return await res.json();
     },
     onSuccess: (data: any) => {
       setSelectedBatches([]);
@@ -48,10 +46,11 @@ export default function AdminBulk() {
   };
 
   const toggleAll = () => {
-    if (selectedBatches.length === eligible?.length) {
+    const eligibleArray = (eligible as any[]) || [];
+    if (selectedBatches.length === eligibleArray.length) {
       setSelectedBatches([]);
     } else {
-      setSelectedBatches(eligible?.map((e: any) => e.id) || []);
+      setSelectedBatches(eligibleArray.map((e: any) => e.id) || []);
     }
   };
 
@@ -92,12 +91,12 @@ export default function AdminBulk() {
           <CardContent className="p-6">
             <div className="mb-4">
               <Button variant="outline" onClick={toggleAll} size="sm">
-                {selectedBatches.length === eligible?.length ? 'Deselect All' : 'Select All'}
+                {selectedBatches.length === ((eligible as any[]) || []).length ? 'Deselect All' : 'Select All'}
               </Button>
             </div>
 
             <div className="space-y-3">
-              {eligible?.map((batch: any) => (
+              {((eligible as any[]) || []).map((batch: any) => (
                 <div
                   key={batch.id}
                   className="flex items-center space-x-4 p-3 border border-border rounded-lg"

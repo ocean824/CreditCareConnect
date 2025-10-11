@@ -32,7 +32,7 @@ export default function AdminCases() {
         <Card>
           <CardContent className="p-6">
             <div className="space-y-4">
-              {cases?.map((caseItem: any) => (
+              {(cases as any[])?.map((caseItem: any) => (
                 <div
                   key={caseItem.caseId}
                   className="flex items-center justify-between p-4 border border-border rounded-lg"

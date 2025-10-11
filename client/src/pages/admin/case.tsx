@@ -43,7 +43,7 @@ export default function AdminCase() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {caseData?.timeline?.map((item: any) => (
+                {((caseData as any)?.timeline || []).map((item: any) => (
                   <div key={item.batch.id} className="p-4 border border-border rounded-lg">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center space-x-2">
@@ -90,7 +90,7 @@ export default function AdminCase() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {caseData?.responses?.map((response: any) => (
+                {((caseData as any)?.responses || []).map((response: any) => (
                   <div key={response.id} className="p-4 border border-border rounded-lg">
                     <div className="flex items-center justify-between mb-2">
                       <Badge variant="outline">Round {response.round}</Badge>

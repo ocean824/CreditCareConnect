@@ -16,9 +16,7 @@ export default function AdminLetters() {
 
   const sendDay34Mutation = useMutation({
     mutationFn: async (letterId: string) => {
-      return await apiRequest(`/api/admin/letters/${letterId}/remind-day34`, {
-        method: 'POST',
-      });
+      return await apiRequest('POST', `/api/admin/letters/${letterId}/remind-day34`);
     },
     onSuccess: () => {
       toast({
@@ -37,9 +35,7 @@ export default function AdminLetters() {
 
   const remailMutation = useMutation({
     mutationFn: async (letterId: string) => {
-      return await apiRequest(`/api/admin/letters/${letterId}/remail`, {
-        method: 'POST',
-      });
+      return await apiRequest('POST', `/api/admin/letters/${letterId}/remail`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/admin/letters'] });
@@ -79,7 +75,7 @@ export default function AdminLetters() {
         <Card>
           <CardContent className="p-6">
             <div className="space-y-4">
-              {letters?.map((letter: any) => (
+              {(letters as any[])?.map((letter: any) => (
                 <div
                   key={letter.id}
                   className="flex items-center justify-between p-4 border border-border rounded-lg"

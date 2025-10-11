@@ -30,7 +30,7 @@ export default function AdminAudit() {
         <Card>
           <CardContent className="p-6">
             <div className="space-y-3">
-              {logs?.map((log: any) => (
+              {(logs as any[])?.map((log: any) => (
                 <div
                   key={log.id}
                   className="flex items-center justify-between p-3 border border-border rounded-lg text-sm"

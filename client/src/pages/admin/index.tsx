@@ -35,7 +35,7 @@ export default function AdminOverview() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold" data-testid="stat-total-users">
-                {stats?.totalUsers || 0}
+                {(stats as any)?.totalUsers || 0}
               </div>
             </CardContent>
           </Card>
@@ -47,7 +47,7 @@ export default function AdminOverview() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold" data-testid="stat-total-cases">
-                {stats?.totalCases || 0}
+                {(stats as any)?.totalCases || 0}
               </div>
             </CardContent>
           </Card>
@@ -59,7 +59,7 @@ export default function AdminOverview() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold" data-testid="stat-total-letters">
-                {stats?.totalLetters || 0}
+                {(stats as any)?.totalLetters || 0}
               </div>
             </CardContent>
           </Card>
@@ -71,7 +71,7 @@ export default function AdminOverview() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold" data-testid="stat-pending-responses">
-                {stats?.pendingResponses || 0}
+                {(stats as any)?.pendingResponses || 0}
               </div>
             </CardContent>
           </Card>

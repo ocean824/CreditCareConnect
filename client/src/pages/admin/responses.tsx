@@ -31,7 +31,7 @@ export default function AdminResponses() {
         <Card>
           <CardContent className="p-6">
             <div className="space-y-4">
-              {responses?.map((response: any) => (
+              {(responses as any[])?.map((response: any) => (
                 <div
                   key={response.id}
                   className="flex items-center justify-between p-4 border border-border rounded-lg"
