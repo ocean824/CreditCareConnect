@@ -141,6 +141,39 @@ export class NotificationService {
 
     await this.sendEmail(userEmail, subject, message);
   }
+
+  async sendDay34FollowUp(
+    userEmail: string,
+    userName: string,
+    bureau: string,
+    round: number,
+    yesToken: string,
+    noToken: string,
+    uploadToken: string
+  ): Promise<void> {
+    const publicUrl = process.env.PUBLIC_URL || 'http://localhost:5000';
+    const subject = `Day 34 Follow-Up - ${bureau} Dispute Round ${round}`;
+    const message = `
+    Hi ${userName},
+    
+    It's been 34 days since we mailed your dispute letter to ${bureau} (Round ${round}).
+    
+    Have you received a response from the bureau?
+    
+    Click one of the links below:
+    
+    YES, I received a response: ${publicUrl}/notify/answer?token=${yesToken}
+    NO, I haven't received anything yet: ${publicUrl}/notify/answer?token=${noToken}
+    
+    Or upload the bureau's response letter here:
+    ${publicUrl}/notify/upload?token=${uploadToken}
+    
+    Best regards,
+    Personal Credit Pros Team
+    `;
+
+    await this.sendEmail(userEmail, subject, message, true);
+  }
 }
 
 export const notificationService = new NotificationService();

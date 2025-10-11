@@ -102,6 +102,40 @@ export class Click2MailService {
       throw new Error("Failed to get job status: " + (error?.message || "Unknown error"));
     }
   }
+
+  async submitLetter(params: {
+    recipientName: string;
+    recipientAddress: string;
+    recipientCity: string;
+    recipientState: string;
+    recipientZip: string;
+    pdfUrl: string;
+  }): Promise<string> {
+    const returnAddress = process.env.C2M_RETURN_ADDRESS_JSON
+      ? JSON.parse(process.env.C2M_RETURN_ADDRESS_JSON)
+      : {
+          name: "Personal Credit Pros",
+          address1: "123 Main St",
+          city: "Anytown",
+          state: "CA",
+          zip: "12345",
+        };
+
+    const letter: Click2MailLetter = {
+      addressFrom: returnAddress,
+      addressTo: {
+        name: params.recipientName,
+        address1: params.recipientAddress,
+        city: params.recipientCity,
+        state: params.recipientState,
+        zip: params.recipientZip,
+      },
+      document: "", // In production, load and encode PDF from params.pdfUrl
+    };
+
+    const result = await this.sendLetter(letter);
+    return result.jobId;
+  }
 }
 
 export const click2mailService = new Click2MailService();

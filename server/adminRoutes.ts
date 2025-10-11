@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "@db";
+import { db } from "./db";
 import { users, mailBatches, deliveryEvents, clientResponses, adminAuditLogs } from "@shared/schema";
 import { eq, desc, sql } from "drizzle-orm";
 import { adminOnly } from "./adminOnly";

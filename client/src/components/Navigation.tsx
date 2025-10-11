@@ -48,7 +48,7 @@ export default function Navigation({ user, activeTab, onTabChange }: NavigationP
             >
               Letters
             </Button>
-            {user?.email?.includes('admin') && (
+            {user?.role === 'admin' && (
               <Button
                 variant={activeTab === "admin" ? "default" : "ghost"}
                 onClick={() => onTabChange("admin")}

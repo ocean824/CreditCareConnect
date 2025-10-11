@@ -48,7 +48,7 @@ app.use((req, res, next) => {
 
   // Admin bootstrap: promote users in ADMIN_EMAILS to admin role
   if (process.env.ADMIN_EMAILS) {
-    const { db } = await import("@db");
+    const { db } = await import("./db");
     const { users } = await import("@shared/schema");
     const { eq } = await import("drizzle-orm");
     
