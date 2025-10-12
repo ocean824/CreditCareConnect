@@ -108,6 +108,13 @@ Preferred communication style: Simple, everyday language.
 - Replit-specific plugins for runtime error overlay and dev tooling
 - Cartographer and dev banner for Replit environment integration
 
+**Credit Freeze Automation**:
+- Puppeteer-based browser automation for submitting credit freeze and opt-out requests
+- Supports LexisNexis (freeze + report request), Cotality, Innovis, OptOutPrescreen, and SageStream
+- Headless Chromium with Replit-safe flags (--no-sandbox, --disable-setuid-sandbox)
+- Asynchronous execution to avoid blocking API responses
+- Graceful handling of CAPTCHAs and verification challenges
+
 ### Security & Compliance
 
 **Authentication Security**:
