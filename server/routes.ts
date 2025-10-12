@@ -18,6 +18,10 @@ import { db } from "./db";
 import { ocrPdfOrImage, ollamaGenerate } from "./ocr";
 import { eq } from "drizzle-orm";
 import { adminRouter } from "./adminRoutes";
+import {
+  runAllFreezes,
+  type FreezeUserInfo,
+} from "./services/freezeAgent";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -598,6 +602,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (err: any) {
       console.error("Click2Mail webhook error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * Submit freeze and opt-out requests on behalf of the authenticated user.
+   *
+   * This endpoint accepts a JSON body with the consumer's personal
+   * information required by credit bureaus and consumer reporting agencies.
+   * The request is processed asynchronously using Puppeteer to navigate
+   * multiple external websites and submit the required forms. Because these
+   * flows may include CAPTCHAs or human verification, the agent will make
+   * best efforts but may fail if automated completion is not possible. In
+   * that case the response will include an error message and the user should
+   * complete the freeze manually.
+   *
+   * Body parameters:
+   * - firstName (string, required)
+   * - lastName (string, required)
+   * - address (string, required)
+   * - city (string, required)
+   * - state (string, required; two-letter code)
+   * - zip (string, required)
+   * - ssn (string, optional)
+   * - dob (string, optional; YYYY-MM-DD)
+   * - phone (string, optional)
+   * - email (string, optional)
+   */
+  app.post('/api/freeze-opt-out', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      const {
+        firstName,
+        lastName,
+        address,
+        city,
+        state,
+        zip,
+        ssn,
+        dob,
+        phone,
+        email,
+      } = req.body || {};
+      if (!firstName || !lastName || !address || !city || !state || !zip) {
+        return res.status(400).json({ message: 'Missing required fields' });
+      }
+      const info: FreezeUserInfo = {
+        firstName,
+        lastName,
+        address,
+        city,
+        state,
+        zip,
+        ssn,
+        dob,
+        phone,
+        email: email || user.email || undefined,
+      };
+      // Run all freeze and opt-out flows in the background
+      runAllFreezes(info)
+        .then(() => {
+          console.log(`[freeze-agent] All freezes completed for user ${userId}`);
+        })
+        .catch((err) => {
+          console.error(`[freeze-agent] Error running freezes for user ${userId}:`, err);
+        });
+      res.json({
+        message: 'Freeze and opt-out requests submitted. This may take a few minutes to complete.',
+        status: 'processing',
+      });
+    } catch (err: any) {
+      console.error('Error in freeze-opt-out endpoint:', err);
       res.status(500).json({ error: err.message });
     }
   });

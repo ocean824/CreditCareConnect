@@ -142,12 +142,29 @@ export async function optOutCotality(info: FreezeUserInfo): Promise<void> {
     // This page often contains a link or form for opt‑out. You may need to
     // click through to the request form. Replace selectors accordingly.
     // Example: click a link labelled "Submit a privacy request"
-    const link = await page.$x("//a[contains(text(), 'privacy request')]");
-    if (link.length > 0) {
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle0' }),
-        link[0].click(),
-      ]);
+    try {
+      const linkElement = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a'));
+        const privacyLink = links.find(link => 
+          link.textContent?.toLowerCase().includes('privacy request')
+        );
+        return privacyLink ? true : false;
+      });
+      
+      if (linkElement) {
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'networkidle0' }),
+          page.evaluate(() => {
+            const links = Array.from(document.querySelectorAll('a'));
+            const privacyLink = links.find(link => 
+              link.textContent?.toLowerCase().includes('privacy request')
+            );
+            if (privacyLink) (privacyLink as HTMLElement).click();
+          }),
+        ]);
+      }
+    } catch (e) {
+      // Link not found, continue with form
     }
     // Once on the form page, populate fields.
     await page.type('input[name="firstName"]', info.firstName);
