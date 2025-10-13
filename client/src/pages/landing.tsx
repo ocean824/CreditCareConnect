@@ -97,7 +97,7 @@ export default function Landing() {
                 onClick={handleLogin}
                 data-testid="button-start-pro"
               >
-                Start Pro Trial
+                Start Pro Plan
               </Button>
             </CardContent>
           </Card>
