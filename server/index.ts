@@ -4,14 +4,29 @@ import "./scheduler";
 import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
 import fs from "fs";
+import { requestId } from "./middleware/requestId";
+import { errorHandler } from "./middleware/errorHandler";
+import { rateLimit } from "./middleware/rateLimit";
+import { testAuth } from "./middleware/testAuth";
+import { registerObservability } from "./observability";
+import { registerOpenApi } from "./openapi";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// Attach requestId early
+app.use(requestId);
+
+// Enable test-only auth shim
+app.use(testAuth);
+
 const FILES_DIR = process.env.FILES_DIR || path.join(process.cwd(), "files");
 if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
 app.use("/files", express.static(FILES_DIR));
+
+// Simple rate limit for AI/chat endpoints
+app.use("/api/chat", rateLimit({ windowMs: 60_000, max: 30 }));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -46,6 +61,10 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // Docs & Observability
+  registerOpenApi(app);
+  registerObservability(app);
+
   // Admin bootstrap: promote users in ADMIN_EMAILS to admin role
   if (process.env.ADMIN_EMAILS) {
     const { db } = await import("./db");
@@ -65,13 +84,8 @@ app.use((req, res, next) => {
     }
   }
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
-  });
+  // Error handler must be last
+  app.use(errorHandler);
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
@@ -95,3 +109,5 @@ app.use((req, res, next) => {
     log(`serving on port ${port}`);
   });
 })();
+
+export { app };

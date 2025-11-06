@@ -14,6 +14,14 @@ export const adminRouter = Router();
 // All admin routes require admin role
 adminRouter.use(adminOnly);
 
+// GET /api/admin/whoami - Admin session introspection for testing
+adminRouter.get("/whoami", (req, res) => {
+  const u = (req as any).user || {};
+  const email = u?.claims?.email || null;
+  const role = u?.role || u?.claims?.role || "user";
+  res.json({ id: u?.claims?.sub || null, email, isAdmin: role === "admin" });
+});
+
 // GET /api/admin/stats - Admin dashboard statistics
 adminRouter.get("/stats", async (req, res) => {
   try {
