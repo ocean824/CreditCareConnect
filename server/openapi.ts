@@ -1,11 +1,14 @@
 import type { Express } from "express";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import YAML from "yaml";
 
 /** Serve OpenAPI JSON & ReDoc */
 export function registerOpenApi(app: Express) {
-  const specPath = path.resolve(import.meta.dirname, "openapi.yml");
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const specPath = path.resolve(__dirname, "openapi.yml");
   const raw = fs.readFileSync(specPath, "utf8");
   const doc = YAML.parse(raw);
 

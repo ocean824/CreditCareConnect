@@ -1,6 +1,7 @@
 export type ErrorCode =
   | "VALIDATION_ERROR"
   | "AUTH_ERROR"
+  | "FORBIDDEN"
   | "RATE_LIMITED"
   | "EXTERNAL_SERVICE"
   | "CONFLICT"
@@ -27,6 +28,12 @@ export class ValidationError extends AppError {
 }
 export class AuthError extends AppError {
   constructor(message = "Unauthorized") { super("AUTH_ERROR", message, 401); }
+}
+export class UnauthorizedError extends AppError {
+  constructor(message = "Unauthorized") { super("AUTH_ERROR", message, 401); }
+}
+export class ForbiddenError extends AppError {
+  constructor(message = "Forbidden") { super("FORBIDDEN", message, 403); }
 }
 export class RateLimitError extends AppError {
   constructor(message = "Too Many Requests") { super("RATE_LIMITED", message, 429); }

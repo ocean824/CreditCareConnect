@@ -1,13 +1,14 @@
 import type { Request, Response, NextFunction } from "express";
+import { UnauthorizedError, ForbiddenError } from "./errors";
 
 export function adminOnly(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return next(new UnauthorizedError("Not authenticated"));
   }
 
   const user = req.user as any;
   if (user.role !== 'admin') {
-    return res.status(403).json({ message: "Forbidden - Admin access required" });
+    return next(new ForbiddenError("Admin access required"));
   }
 
   next();
