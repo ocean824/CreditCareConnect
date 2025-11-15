@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
 import Navigation from "@/components/Navigation";
+import { DocumentHistoryPanel } from "@/components/DocumentHistoryPanel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +10,7 @@ import { AlertCircle, TrendingUp, Shield, DollarSign, Target } from "lucide-reac
 
 export default function Analysis() {
   const { user, isLoading } = useAuth();
+  const [viewingDocument, setViewingDocument] = useState<any>(null);
 
   const { data: creditReports } = useQuery({
     queryKey: ["/api/credit-reports"],
@@ -32,8 +35,27 @@ export default function Analysis() {
   const bureausAffected = new Set(violations?.map(v => v.bureau) || []).size;
   const highSeverityCount = violations?.filter(v => v.severity === "HIGH")?.length || 0;
 
+  const documentHistory = creditReports?.map(report => ({
+    id: report.id,
+    filename: report.fileName,
+    uploadedAt: new Date(report.createdAt),
+    status: report.analysisStatus === "COMPLETED" ? "complete" as const : 
+            report.analysisStatus === "PENDING" ? "processing" as const : 
+            report.analysisStatus === "ERROR" ? "error" as const : "uploaded" as const,
+    type: "credit-report" as const,
+    size: undefined
+  })) || [];
+
   return (
     <div className="min-h-screen bg-background">
+      <DocumentHistoryPanel 
+        documents={documentHistory}
+        onViewDocument={(doc) => setViewingDocument(doc)}
+        onDownloadDocument={(doc) => {
+          window.open(`/api/credit-reports/${doc.id}/download`, '_blank');
+        }}
+      />
+      
       <Navigation 
         user={user} 
         activeTab="analysis"

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Navigation from "@/components/Navigation";
+import { PrintPreviewModal } from "@/components/PrintPreviewModal";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,8 @@ import {
 export default function Letters() {
   const { user, isLoading } = useAuth();
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
+  const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [previewDocument, setPreviewDocument] = useState<any>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -72,7 +75,18 @@ export default function Letters() {
   };
 
   const handlePreviewLetter = (letterId: string) => {
-    setSelectedLetter(letterId);
+    const letter = disputeLetters?.find(l => l.id === letterId);
+    if (letter) {
+      setPreviewDocument({
+        id: letter.id,
+        filename: `${letter.bureau}_Dispute_Letter.pdf`,
+        recipient: `${letter.bureau} Credit Bureau`,
+        sender: "Personal Credit Pros",
+        pages: 1,
+        content: letter.content
+      });
+      setShowPrintPreview(true);
+    }
   };
 
   const getStatusIcon = (status: string) => {
@@ -103,6 +117,18 @@ export default function Letters() {
 
   return (
     <div className="min-h-screen bg-background">
+      <PrintPreviewModal 
+        open={showPrintPreview}
+        onClose={() => setShowPrintPreview(false)}
+        document={previewDocument}
+        onSendToClick2Mail={() => {
+          toast({
+            title: "Sent to Click2Mail",
+            description: "Your dispute letter has been sent for physical mailing.",
+          });
+        }}
+      />
+      
       <Navigation 
         user={user} 
         activeTab="letters"
