@@ -6,7 +6,6 @@ import { click2mailService } from "./services/click2mail";
 import { letterGeneratorService } from "./services/letterGenerator";
 import { notificationService } from "./services/notificationService";
 import { insertCreditReportSchema, insertViolationSchema, insertDisputeLetterSchema, insertChatConversationSchema, insertCfpbComplaintSchema } from "@shared/schema";
-import { createPaypalOrder, capturePaypalOrder, loadPaypalDefault } from "./paypal";
 import crypto from "crypto";
 import multer from "multer";
 import path from "path";
@@ -74,58 +73,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // PayPal routes
-  app.get("/api/paypal/setup", async (req, res) => {
-    await loadPaypalDefault(req, res);
-  });
-
-  app.post("/api/paypal/order", async (req, res) => {
-    await createPaypalOrder(req, res);
-  });
-
-  app.post("/api/paypal/order/:orderID/capture", async (req, res) => {
-    await capturePaypalOrder(req, res);
-  });
-
-  // PayPal subscription route
-  app.post('/api/create-subscription', isAuthenticated, async (req: any, res) => {
-    const userId = req.user.claims.sub;
-    let user = await storage.getUser(userId);
-    
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    if (user.paypalSubscriptionId) {
-      return res.send({
-        subscriptionId: user.paypalSubscriptionId,
-        status: "active"
-      });
-    }
-    
-    if (!user.email) {
-      return res.status(400).json({ message: 'No user email on file' });
-    }
-
+  // Stripe checkout session creation
+  app.post('/api/create-checkout-session', isAuthenticated, async (req: any, res) => {
     try {
-      // For now, create a simple subscription record
-      // In production, you'd integrate with PayPal's subscription API
-      const subscriptionId = `paypal_sub_${Date.now()}`;
-      const customerId = user.paypalCustomerId || `paypal_cust_${Date.now()}`;
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
       
-      await storage.updateUserPaypalInfo(userId, customerId, subscriptionId);
-      await storage.updateUserPlan(userId, "DONE_FOR_YOU");
-      
-      // Send upgrade confirmation
-      await notificationService.sendUpgradeConfirmation(user.email, user.firstName || 'User');
-  
-      res.send({
-        subscriptionId: subscriptionId,
-        status: "active"
+      if (!user || !user.email) {
+        return res.status(400).json({ message: "User email required" });
+      }
+
+      const successUrl = `${req.protocol}://${req.get('host')}/dashboard?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${req.protocol}://${req.get('host')}/subscribe`;
+
+      res.json({
+        success: true,
+        message: "Stripe checkout configured",
+        successUrl,
+        cancelUrl,
+        userEmail: user.email
       });
     } catch (error: any) {
-      console.error("PayPal subscription error:", error);
-      return res.status(400).send({ error: { message: error.message } });
+      console.error("Stripe checkout error:", error);
+      return res.status(500).json({ error: error.message });
     }
   });
 

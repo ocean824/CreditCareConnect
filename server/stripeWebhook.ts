@@ -59,7 +59,7 @@ export function registerStripeWebhook(app: Express) {
             if (customerEmail && customerId) {
               const user = await storage.getUserByEmail(customerEmail);
               if (user) {
-                await storage.updateUserPaypalInfo(user.id, customerId, subscriptionId);
+                await storage.updateUserStripeInfo(user.id, customerId, subscriptionId);
                 await storage.updateUserPlan(user.id, "DONE_FOR_YOU");
                 console.log(`✓ User ${user.email} upgraded to DONE_FOR_YOU via Stripe`);
                 
@@ -105,7 +105,7 @@ export function registerStripeWebhook(app: Express) {
             const customerId = subscription.customer as string;
             
             const users = await storage.getAllUsers();
-            const user = users.find(u => u.paypalCustomerId === customerId);
+            const user = users.find(u => u.stripeCustomerId === customerId);
             
             if (user) {
               await storage.updateUserPlan(user.id, "DIY");

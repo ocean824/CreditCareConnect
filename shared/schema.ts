@@ -33,8 +33,8 @@ export const users = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   plan: varchar("plan").default("DIY").notNull(), // DIY, DONE_FOR_YOU, ENTERPRISE
   role: varchar("role", { length: 10 }).notNull().default("user"), // user, admin
-  paypalCustomerId: varchar("paypal_customer_id"),
-  paypalSubscriptionId: varchar("paypal_subscription_id"),
+  stripeCustomerId: varchar("stripe_customer_id"),
+  stripeSubscriptionId: varchar("stripe_subscription_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

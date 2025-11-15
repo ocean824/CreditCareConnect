@@ -12,23 +12,24 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { CheckCircle, Clock, AlertCircle, FileText, Download, Eye } from "lucide-react";
+import type { CreditReport, Violation, DisputeLetter } from "@shared/schema";
 
 export default function Dashboard() {
   const { user, isLoading } = useAuth();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
 
-  const { data: creditReports } = useQuery({
+  const { data: creditReports } = useQuery<CreditReport[]>({
     queryKey: ["/api/credit-reports"],
     enabled: !!user,
   });
 
-  const { data: violations } = useQuery({
+  const { data: violations } = useQuery<Violation[]>({
     queryKey: ["/api/violations"],
     enabled: !!user,
   });
 
-  const { data: disputeLetters } = useQuery({
+  const { data: disputeLetters } = useQuery<DisputeLetter[]>({
     queryKey: ["/api/dispute-letters"],
     enabled: !!user,
   });
@@ -51,7 +52,7 @@ export default function Dashboard() {
       <PRDViewerPanel />
       
       <Navigation 
-        user={user} 
+        user={user as any} 
         activeTab={activeTab}
         onTabChange={setActiveTab}
       />

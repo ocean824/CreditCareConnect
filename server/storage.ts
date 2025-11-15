@@ -30,7 +30,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
-  updateUserPaypalInfo(userId: string, customerId: string, subscriptionId: string): Promise<User>;
+  updateUserStripeInfo(userId: string, customerId: string, subscriptionId: string): Promise<User>;
   updateUserPlan(userId: string, plan: string): Promise<User>;
   updateUserProfile(userId: string, data: { firstName?: string; lastName?: string }): Promise<User>;
   
@@ -99,12 +99,12 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async updateUserPaypalInfo(userId: string, customerId: string, subscriptionId: string): Promise<User> {
+  async updateUserStripeInfo(userId: string, customerId: string, subscriptionId: string): Promise<User> {
     const [user] = await db
       .update(users)
       .set({
-        paypalCustomerId: customerId,
-        paypalSubscriptionId: subscriptionId,
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscriptionId,
         plan: "DONE_FOR_YOU",
         updatedAt: new Date(),
       })
