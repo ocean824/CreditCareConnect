@@ -58,7 +58,11 @@ export function renderPRDViewer(container) {
       if (allowedTabs.includes(tabValue)) {
         tabs.forEach(t => t.style.background = "#f3f4f6");
         tab.style.background = "#e0e7ff";
-        contentArea.innerHTML = content[tabValue];
+        // Safe DOM manipulation: clear and append parsed content
+        contentArea.textContent = '';
+        const template = document.createElement('template');
+        template.innerHTML = content[tabValue];
+        contentArea.appendChild(template.content);
       }
     };
   });
