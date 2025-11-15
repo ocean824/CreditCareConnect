@@ -51,11 +51,15 @@ export function renderPRDViewer(container) {
 
   const tabs = document.querySelectorAll(".tab");
   const contentArea = document.getElementById("prdContent");
+  const allowedTabs = ['upload', 'ai', 'click2mail'];
   tabs.forEach(tab => {
     tab.onclick = () => {
-      tabs.forEach(t => t.style.background = "#f3f4f6");
-      tab.style.background = "#e0e7ff";
-      contentArea.innerHTML = content[tab.dataset.tab];
+      const tabValue = tab.dataset.tab;
+      if (allowedTabs.includes(tabValue)) {
+        tabs.forEach(t => t.style.background = "#f3f4f6");
+        tab.style.background = "#e0e7ff";
+        contentArea.innerHTML = content[tabValue];
+      }
     };
   });
 
