@@ -8,6 +8,9 @@ import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import ProfilePage from "@/pages/profile";
+import Analysis from "@/pages/analysis";
+import Letters from "@/pages/letters";
+import Subscribe from "@/pages/subscribe";
 import AdminOverview from "@/pages/admin/index";
 import AdminUsers from "@/pages/admin/users";
 import AdminCases from "@/pages/admin/cases";
@@ -29,6 +32,10 @@ function Router() {
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/profile" component={ProfilePage} />
+          <Route path="/analysis" component={Analysis} />
+          <Route path="/letters" component={Letters} />
+          <Route path="/subscribe" component={Subscribe} />
+          <Route path="/upload" component={Dashboard} />
           <Route path="/admin" component={AdminOverview} />
           <Route path="/admin/users" component={AdminUsers} />
           <Route path="/admin/cases" component={AdminCases} />

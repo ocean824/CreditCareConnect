@@ -7,17 +7,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, TrendingUp, Shield, DollarSign, Target } from "lucide-react";
+import type { CreditReport, Violation } from "@shared/schema";
 
 export default function Analysis() {
   const { user, isLoading } = useAuth();
   const [viewingDocument, setViewingDocument] = useState<any>(null);
 
-  const { data: creditReports } = useQuery({
+  const { data: creditReports } = useQuery<CreditReport[]>({
     queryKey: ["/api/credit-reports"],
     enabled: !!user,
   });
 
-  const { data: violations } = useQuery({
+  const { data: violations } = useQuery<Violation[]>({
     queryKey: ["/api/violations"],
     enabled: !!user,
   });
@@ -38,7 +39,7 @@ export default function Analysis() {
   const documentHistory = creditReports?.map(report => ({
     id: report.id,
     filename: report.fileName,
-    uploadedAt: new Date(report.createdAt),
+    uploadedAt: report.createdAt ? new Date(report.createdAt) : new Date(),
     status: report.analysisStatus === "COMPLETED" ? "complete" as const : 
             report.analysisStatus === "PENDING" ? "processing" as const : 
             report.analysisStatus === "ERROR" ? "error" as const : "uploaded" as const,
@@ -57,7 +58,7 @@ export default function Analysis() {
       />
       
       <Navigation 
-        user={user} 
+        user={user as any} 
         activeTab="analysis"
         onTabChange={() => {}}
       />
