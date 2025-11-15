@@ -55,7 +55,13 @@ export function renderPRDViewer(container) {
     tab.onclick = () => {
       tabs.forEach(t => t.style.background = "#f3f4f6");
       tab.style.background = "#e0e7ff";
-      contentArea.innerHTML = content[tab.dataset.tab];
+      // Safe DOM manipulation: clear and rebuild content
+      contentArea.textContent = '';
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = content[tab.dataset.tab];
+      while (tempDiv.firstChild) {
+        contentArea.appendChild(tempDiv.firstChild);
+      }
     };
   });
 
