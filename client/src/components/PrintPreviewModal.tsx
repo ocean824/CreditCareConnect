@@ -49,8 +49,14 @@ export function PrintPreviewModal({
     onClose();
   };
 
+  const handleOpenChange = (isOpen: boolean) => {
+    if (!isOpen) {
+      onClose();
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-6xl h-[90vh] flex flex-col" data-testid="print-preview-modal">
         <DialogHeader>
           <div className="flex items-center justify-between">

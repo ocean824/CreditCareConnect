@@ -26,8 +26,16 @@ export function OnboardingModal({ open: controlledOpen, onClose }: OnboardingMod
     onClose?.();
   };
 
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+    if (!isOpen) {
+      localStorage.setItem("hasSeenOnboarding", "true");
+      onClose?.();
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-2xl" data-testid="onboarding-modal">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold text-center">
