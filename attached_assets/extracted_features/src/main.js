@@ -18,10 +18,22 @@ window.simulateUpload = () => {
 
   result.innerHTML = '<p>📤 Uploading...</p>';
   setTimeout(() => {
-    result.innerHTML = `
-      <p>✅ Document scanned.</p>
-      <p><strong>Summary:</strong> This is a placeholder AI summary of your document.</p>
-      <button onclick="renderPrintPreview('${fileName}')">🖨️ Preview Mail</button>
-    `;
+    result.innerHTML = '';
+    
+    const successMsg = document.createElement('p');
+    successMsg.textContent = '✅ Document scanned.';
+    result.appendChild(successMsg);
+    
+    const summary = document.createElement('p');
+    const strongTag = document.createElement('strong');
+    strongTag.textContent = 'Summary:';
+    summary.appendChild(strongTag);
+    summary.appendChild(document.createTextNode(' This is a placeholder AI summary of your document.'));
+    result.appendChild(summary);
+    
+    const previewBtn = document.createElement('button');
+    previewBtn.textContent = '🖨️ Preview Mail';
+    previewBtn.addEventListener('click', () => renderPrintPreview(fileName));
+    result.appendChild(previewBtn);
   }, 2000);
 };
