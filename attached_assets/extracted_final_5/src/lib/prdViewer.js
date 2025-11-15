@@ -55,7 +55,11 @@ export function renderPRDViewer(container) {
     tab.onclick = () => {
       tabs.forEach(t => t.style.background = "#f3f4f6");
       tab.style.background = "#e0e7ff";
-      contentArea.innerHTML = content[tab.dataset.tab];
+      // Safe DOM manipulation: clear and append parsed content
+      contentArea.textContent = '';
+      const template = document.createElement('template');
+      template.innerHTML = content[tab.dataset.tab];
+      contentArea.appendChild(template.content);
     };
   });
 
