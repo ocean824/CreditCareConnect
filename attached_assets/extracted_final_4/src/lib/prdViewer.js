@@ -17,31 +17,40 @@ export function renderPRDViewer(container) {
     </div>
   `;
 
-  const content = {
-    upload: \`
-      <h3>📤 Document Upload</h3>
-      <ul>
-        <li>Allow PDF, DOCX, PNG uploads</li>
-        <li>Show upload progress and validate formats</li>
-        <li>Simulate OCR summary generation</li>
-      </ul>
-    \`,
-    ai: \`
-      <h3>🧠 AI Summary (Simulated)</h3>
-      <ul>
-        <li>Fake AI response to uploaded content</li>
-        <li>Response should be timed for realism</li>
-        <li>Example: "Detected invoice dated Oct 2023..."</li>
-      </ul>
-    \`,
-    click2mail: \`
-      <h3>📮 Click2Mail Toggle</h3>
-      <ul>
-        <li>User selects whether to send document physically</li>
-        <li>Conditional logic paths should be simulated</li>
-        <li>Example: Skip download if Click2Mail is on</li>
-      </ul>
-    \`
+  const createContent = {
+    upload: () => {
+      const h3 = document.createElement('h3');
+      h3.textContent = '📤 Document Upload';
+      const ul = document.createElement('ul');
+      ['Allow PDF, DOCX, PNG uploads', 'Show upload progress and validate formats', 'Simulate OCR summary generation'].forEach(text => {
+        const li = document.createElement('li');
+        li.textContent = text;
+        ul.appendChild(li);
+      });
+      return [h3, ul];
+    },
+    ai: () => {
+      const h3 = document.createElement('h3');
+      h3.textContent = '🧠 AI Summary (Simulated)';
+      const ul = document.createElement('ul');
+      ['Fake AI response to uploaded content', 'Response should be timed for realism', 'Example: "Detected invoice dated Oct 2023..."'].forEach(text => {
+        const li = document.createElement('li');
+        li.textContent = text;
+        ul.appendChild(li);
+      });
+      return [h3, ul];
+    },
+    click2mail: () => {
+      const h3 = document.createElement('h3');
+      h3.textContent = '📮 Click2Mail Toggle';
+      const ul = document.createElement('ul');
+      ['User selects whether to send document physically', 'Conditional logic paths should be simulated', 'Example: Skip download if Click2Mail is on'].forEach(text => {
+        const li = document.createElement('li');
+        li.textContent = text;
+        ul.appendChild(li);
+      });
+      return [h3, ul];
+    }
   };
 
   document.getElementById("togglePRD").onclick = () => {
@@ -57,11 +66,8 @@ export function renderPRDViewer(container) {
       tab.style.background = "#e0e7ff";
       // Safe DOM manipulation: clear and rebuild content
       contentArea.textContent = '';
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = content[tab.dataset.tab];
-      while (tempDiv.firstChild) {
-        contentArea.appendChild(tempDiv.firstChild);
-      }
+      const elements = createContent[tab.dataset.tab]();
+      elements.forEach(el => contentArea.appendChild(el));
     };
   });
 
