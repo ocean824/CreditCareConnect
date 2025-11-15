@@ -18,15 +18,33 @@ window.simulateUpload = () => {
   uploadCount += 1;
   updateDashboard(uploadCount, mailCount);
 
-  result.innerHTML = '<p>📤 Uploading...</p>';
+  result.textContent = '';
+  const uploadingMsg = document.createElement('p');
+  uploadingMsg.textContent = '📤 Uploading...';
+  result.appendChild(uploadingMsg);
+  
   setTimeout(() => {
-    result.innerHTML = `
-      <p>✅ Document scanned.</p>
-      <p><strong>Summary:</strong> This is a placeholder AI summary of your document.</p>
-      <button onclick="mailCount += 1; updateDashboard(uploadCount, mailCount); renderPrintPreview('${fileName}')">
-        🖨️ Preview Mail
-      </button>
-    `;
+    result.textContent = '';
+    
+    const successMsg = document.createElement('p');
+    successMsg.textContent = '✅ Document scanned.';
+    result.appendChild(successMsg);
+    
+    const summaryMsg = document.createElement('p');
+    const summaryStrong = document.createElement('strong');
+    summaryStrong.textContent = 'Summary:';
+    summaryMsg.appendChild(summaryStrong);
+    summaryMsg.appendChild(document.createTextNode(' This is a placeholder AI summary of your document.'));
+    result.appendChild(summaryMsg);
+    
+    const previewBtn = document.createElement('button');
+    previewBtn.textContent = '🖨️ Preview Mail';
+    previewBtn.addEventListener('click', () => {
+      mailCount += 1;
+      updateDashboard(uploadCount, mailCount);
+      renderPrintPreview(fileName);
+    });
+    result.appendChild(previewBtn);
   }, 2000);
 };
 
