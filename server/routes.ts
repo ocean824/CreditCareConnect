@@ -2,7 +2,6 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
-// import { analyzeCreditReport, generateDisputeLetter, chatWithAI, generateCFPBComplaint } from "./services/openai";
 import { click2mailService } from "./services/click2mail";
 import { letterGeneratorService } from "./services/letterGenerator";
 import { notificationService } from "./services/notificationService";
@@ -162,6 +161,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 description: "Account showing incorrect balance",
                 statute: "FCRA Section 611",
                 severity: "HIGH"
+              },
+              {
+                accountName: "Credit Card XYZ",
+                accountNumber: "9876543210",
+                bureau: bureau || "EQUIFAX",
+                violationType: "OBSOLETE_INFORMATION",
+                description: "Account older than 7 years still being reported",
+                statute: "FCRA Section 605",
+                severity: "MEDIUM"
               }
             ]
           };
@@ -187,11 +195,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               status: "IDENTIFIED"
             });
           }
+          
+          console.log(`✓ Analysis completed for report ${creditReport.id}: ${analysis.violations.length} violations created`);
         } catch (error) {
           console.error("Error in background analysis:", error);
           await storage.updateCreditReportAnalysis(creditReport.id, null, "FAILED");
         }
-      }, 5000);
+      }, 1500);
 
       res.json(creditReport);
     } catch (error) {
