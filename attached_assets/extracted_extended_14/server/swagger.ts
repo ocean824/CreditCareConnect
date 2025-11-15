@@ -20,8 +20,11 @@ const swaggerSpec = swaggerJSDoc(options);
 
 export function setupSwagger(app) {
   app.use('/docs', (req, res, next) => {
+    const validToken = process.env.SWAGGER_ADMIN_TOKEN;
+    if (!validToken) {
+      return res.status(503).json({ message: "Service unavailable: Documentation access not configured" });
+    }
     const token = req.headers['x-admin-token'];
-    const validToken = process.env.SWAGGER_ADMIN_TOKEN || 'admin-doc-token';
     if (token === validToken) return swaggerUi.serve(req, res, next);
     return res.status(403).json({ message: "Forbidden: Admin token required" });
   }, swaggerUi.setup(swaggerSpec));
