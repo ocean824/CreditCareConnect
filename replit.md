@@ -22,6 +22,13 @@ Preferred communication style: Simple, everyday language.
 
 **Routing**: Wouter for lightweight client-side routing with role-based access control
 
+**User Interface Components**:
+- OnboardingModal - First-time user welcome with feature overview (localStorage-based persistence)
+- PrintPreviewModal - Letter preview with print/download/Click2Mail actions
+- DocumentHistoryPanel - Sliding sidebar for tracking uploaded credit reports
+- PRDViewerPanel - Tabbed documentation viewer for platform features
+- UserProfile Page - Account settings, saved documents, and subscription tier management
+
 **Key Design Decisions**:
 - Monorepo structure with shared schema types between client and server (`@shared` alias)
 - Component-based architecture with reusable UI primitives
@@ -37,6 +44,16 @@ Preferred communication style: Simple, everyday language.
 **Authentication**: OpenID Connect (OIDC) integration with Replit Auth using Passport.js strategies and session-based authentication stored in PostgreSQL
 
 **Authorization**: Role-based access control (RBAC) with `user` and `admin` roles enforced via middleware guards (`adminOnly`, `isAuthenticated`)
+
+**API Endpoints**:
+- `GET /api/auth/user` - Retrieve authenticated user profile
+- `PATCH /api/auth/profile` - Update user first name and last name
+- `POST /api/credit-reports/upload` - Upload credit report for analysis
+- `GET /api/credit-reports` - List user's credit reports
+- `GET /api/violations` - List detected violations
+- `POST /api/dispute-letters/generate` - Generate dispute letter with AI
+- `GET /api/dispute-letters` - List user's dispute letters
+- `GET /api/dispute-letters/:id/download` - Download letter PDF
 
 **Key Design Decisions**:
 - Modular service layer separating business logic from route handlers
