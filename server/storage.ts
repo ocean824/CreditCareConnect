@@ -31,6 +31,7 @@ export interface IStorage {
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserPaypalInfo(userId: string, customerId: string, subscriptionId: string): Promise<User>;
   updateUserPlan(userId: string, plan: string): Promise<User>;
+  updateUserProfile(userId: string, data: { firstName?: string; lastName?: string }): Promise<User>;
   
   // Credit Report operations
   createCreditReport(report: InsertCreditReport): Promise<CreditReport>;
@@ -111,6 +112,18 @@ export class DatabaseStorage implements IStorage {
       .update(users)
       .set({
         plan,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
+  }
+
+  async updateUserProfile(userId: string, data: { firstName?: string; lastName?: string }): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({
+        ...data,
         updatedAt: new Date(),
       })
       .where(eq(users.id, userId))

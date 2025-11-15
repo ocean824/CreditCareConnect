@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, UserCircle } from "lucide-react";
+import { Link } from "wouter";
 import type { User } from "@shared/schema";
 
 interface NavigationProps {
@@ -70,6 +71,15 @@ export default function Navigation({ user, activeTab, onTabChange }: NavigationP
                 {user?.email || 'user@example.com'}
               </span>
             </div>
+            <Link href="/profile">
+              <Button 
+                variant="ghost" 
+                size="sm"
+                data-testid="button-profile"
+              >
+                <UserCircle className="w-5 h-5" />
+              </Button>
+            </Link>
             <Button 
               variant="ghost" 
               size="sm" 

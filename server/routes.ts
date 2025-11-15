@@ -39,6 +39,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update user profile
+  app.patch('/api/auth/profile', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { firstName, lastName } = req.body;
+
+      await storage.updateUserProfile(userId, { firstName, lastName });
+      const updatedUser = await storage.getUser(userId);
+      
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
   // Client self-info (with role for RBAC)
   app.get('/api/me', isAuthenticated, async (req: any, res) => {
     try {
