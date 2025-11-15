@@ -1,7 +1,15 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import Stripe from "stripe";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
+}
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2024-11-20.acacia",
+});
 import { click2mailService } from "./services/click2mail";
 import { letterGeneratorService } from "./services/letterGenerator";
 import { notificationService } from "./services/notificationService";
@@ -80,18 +88,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       
       if (!user || !user.email) {
-        return res.status(400).json({ message: "User email required" });
+        return res.status(400).json({ error: "User email required" });
       }
 
-      const successUrl = `${req.protocol}://${req.get('host')}/dashboard?session_id={CHECKOUT_SESSION_ID}`;
-      const cancelUrl = `${req.protocol}://${req.get('host')}/subscribe`;
+      const { plan, successUrl, cancelUrl } = req.body;
+
+      if (!plan || (plan !== 'DIY' && plan !== 'DONE_FOR_YOU')) {
+        return res.status(400).json({ error: "Invalid plan selection" });
+      }
+
+      const priceAmount = plan === 'DIY' ? 1995 : 14999;
+      const planName = plan === 'DIY' ? 'DIY Mode' : 'Done-For-You';
+
+      const session = await stripe.checkout.sessions.create({
+        customer_email: user.email,
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: `Personal Credit Pros - ${planName}`,
+                description: plan === 'DIY' 
+                  ? 'AI-powered credit report analysis and dispute letter generation'
+                  : 'Full-service credit repair with automated mailing and CRM tracking',
+              },
+              unit_amount: priceAmount,
+              recurring: {
+                interval: 'month',
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: successUrl || `${req.protocol}://${req.get('host')}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: cancelUrl || `${req.protocol}://${req.get('host')}/subscribe?canceled=true`,
+        metadata: {
+          userId: user.id,
+          plan: plan,
+        },
+      });
 
       res.json({
         success: true,
-        message: "Stripe checkout configured",
-        successUrl,
-        cancelUrl,
-        userEmail: user.email
+        url: session.url,
+        sessionId: session.id
       });
     } catch (error: any) {
       console.error("Stripe checkout error:", error);

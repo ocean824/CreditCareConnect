@@ -25,6 +25,7 @@ function Router() {
 
   return (
     <Switch>
+      <Route path="/subscribe" component={Subscribe} />
       {isLoading || !isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (
@@ -34,7 +35,6 @@ function Router() {
           <Route path="/profile" component={ProfilePage} />
           <Route path="/analysis" component={Analysis} />
           <Route path="/letters" component={Letters} />
-          <Route path="/subscribe" component={Subscribe} />
           <Route path="/upload" component={Dashboard} />
           <Route path="/admin" component={AdminOverview} />
           <Route path="/admin/users" component={AdminUsers} />

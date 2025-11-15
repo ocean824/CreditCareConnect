@@ -1,251 +1,236 @@
-import { useStripe, Elements, PaymentElement, useElements } from '@stripe/react-stripe-js';
-import { loadStripe } from '@stripe/stripe-js';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, ArrowLeft, Loader2 } from "lucide-react";
+import { CheckCircle, ArrowLeft, Loader2, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
-// Make sure to call `loadStripe` outside of a component's render to avoid
-// recreating the `Stripe` object on every render.
-if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
-  throw new Error('Missing required Stripe key: VITE_STRIPE_PUBLIC_KEY');
-}
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
-
-const SubscribeForm = () => {
-  const stripe = useStripe();
-  const elements = useElements();
+export default function Subscribe() {
+  const { user } = useAuth();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingDIY, setIsLoadingDIY] = useState(false);
+  const [isLoadingPro, setIsLoadingPro] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-
-    if (!stripe || !elements) {
-      setIsLoading(false);
+  const handleSelectPlan = async (plan: 'DIY' | 'DONE_FOR_YOU') => {
+    // Check if user is authenticated
+    if (!user) {
+      toast({
+        title: "Login Required",
+        description: "Please log in to subscribe to a plan.",
+        variant: "default",
+      });
+      // Store the selected plan in session storage to restore after login
+      sessionStorage.setItem('selectedPlan', plan);
+      window.location.href = '/?action=login';
       return;
     }
 
-    const { error } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        return_url: window.location.origin,
-      },
-    });
+    const setLoading = plan === 'DIY' ? setIsLoadingDIY : setIsLoadingPro;
+    setLoading(true);
 
-    if (error) {
+    try {
+      const response = await apiRequest("POST", "/api/create-checkout-session", {
+        plan,
+        successUrl: `${window.location.origin}/dashboard?upgrade=success`,
+        cancelUrl: `${window.location.origin}/subscribe?canceled=true`,
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create checkout session');
+      }
+
       toast({
-        title: "Payment Failed",
-        description: error.message,
+        title: "Redirecting to checkout...",
+        description: "Please complete your payment with Stripe",
+      });
+
+      window.location.href = data.url;
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to start checkout. Please try again.",
         variant: "destructive",
       });
-    } else {
-      toast({
-        title: "Payment Successful",
-        description: "Welcome to the Done-For-You plan!",
-      });
+      setLoading(false);
     }
-    
-    setIsLoading(false);
   };
-
-  return (
-    <Card className="max-w-md mx-auto" data-testid="payment-form">
-      <CardHeader className="text-center">
-        <CardTitle>Complete Your Subscription</CardTitle>
-        <CardDescription>
-          You're upgrading to the Done-For-You plan for $149.99/month
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <PaymentElement />
-          <Button 
-            type="submit" 
-            className="w-full"
-            disabled={!stripe || isLoading}
-            data-testid="button-complete-payment"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              "Complete Payment"
-            )}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  );
-};
-
-export default function Subscribe() {
-  const [clientSecret, setClientSecret] = useState("");
-  const { user } = useAuth();
-  const { toast } = useToast();
-
-  useEffect(() => {
-    // Create subscription as soon as the page loads
-    apiRequest("POST", "/api/create-subscription")
-      .then((res) => res.json())
-      .then((data) => {
-        setClientSecret(data.clientSecret);
-      })
-      .catch((error) => {
-        toast({
-          title: "Error",
-          description: "Failed to initialize payment. Please try again.",
-          variant: "destructive",
-        });
-        console.error("Subscription error:", error);
-      });
-  }, [toast]);
-
-  const handleGoBack = () => {
-    window.history.back();
-  };
-
-  if (!clientSecret) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Card className="max-w-md mx-auto">
-          <CardContent className="text-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Setting up your subscription...</h3>
-            <p className="text-muted-foreground">Please wait while we prepare your payment.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary to-green-500">
       <div className="container mx-auto px-4 py-16">
         
         {/* Header */}
-        <div className="text-center text-white mb-8">
+        <div className="text-center text-white mb-12">
           <div className="flex items-center justify-center mb-6">
-            <Button 
-              variant="ghost" 
-              className="text-white hover:bg-white/10 mr-4"
-              onClick={handleGoBack}
-              data-testid="button-go-back"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back
-            </Button>
-            <div className="flex items-center">
-              <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center mr-3">
-                <CheckCircle className="w-5 h-5 text-white" />
-              </div>
-              <h1 className="text-2xl font-bold">Personal Credit Pros</h1>
+            <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center mr-3">
+              <CheckCircle className="w-7 h-7 text-white" />
             </div>
+            <h1 className="text-3xl font-bold">Personal Credit Pros</h1>
           </div>
-          <h2 className="text-xl text-blue-100">
-            Upgrade to Done-For-You Plan
-          </h2>
+          <h2 className="text-2xl mb-3">AI-Powered Credit Repair Platform</h2>
+          <p className="text-blue-100 max-w-2xl mx-auto">
+            Fix Your Credit Score with Professional Dispute Letters
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-4xl mx-auto">
+        {/* Pricing Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
           
-          {/* Plan Benefits */}
-          <Card className="bg-white/95 backdrop-blur-sm" data-testid="plan-benefits">
-            <CardHeader>
-              <CardTitle className="text-xl">What's Included</CardTitle>
-              <div className="text-3xl font-bold text-primary">$149.99</div>
-              <CardDescription>per month</CardDescription>
+          {/* DIY Plan */}
+          <Card className="bg-white relative" data-testid="card-plan-diy">
+            <CardHeader className="text-center pb-8">
+              <CardTitle className="text-2xl mb-2">DIY Mode</CardTitle>
+              <div className="text-4xl font-bold text-primary mb-2">$19.95</div>
+              <CardDescription className="text-base">per month</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-6">
               <ul className="space-y-4">
-                <li className="flex items-start text-sm">
-                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5" />
-                  <div>
-                    <div className="font-medium">Everything in DIY Mode</div>
-                    <div className="text-muted-foreground text-xs">Credit report analysis and letter generation</div>
-                  </div>
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm">Credit report upload & AI analysis</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5" />
-                  <div>
-                    <div className="font-medium">Automated Letter Mailing</div>
-                    <div className="text-muted-foreground text-xs">We mail your letters via Click2Mail with tracking</div>
-                  </div>
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm">AI-generated dispute letters</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5" />
-                  <div>
-                    <div className="font-medium">CRM Integration & Tracking</div>
-                    <div className="text-muted-foreground text-xs">Full case management and progress tracking</div>
-                  </div>
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm">PDF download & print</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5" />
-                  <div>
-                    <div className="font-medium">SMS & Email Notifications</div>
-                    <div className="text-muted-foreground text-xs">Automated reminders and status updates</div>
-                  </div>
-                </li>
-                <li className="flex items-start text-sm">
-                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5" />
-                  <div>
-                    <div className="font-medium">Priority AI Assistant</div>
-                    <div className="text-muted-foreground text-xs">Enhanced support with advanced features</div>
-                  </div>
-                </li>
-                <li className="flex items-start text-sm">
-                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5" />
-                  <div>
-                    <div className="font-medium">Cancel Anytime</div>
-                    <div className="text-muted-foreground text-xs">No long-term contracts or commitments</div>
-                  </div>
+                <li className="flex items-start">
+                  <X className="w-5 h-5 text-gray-300 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm text-muted-foreground">Manual mailing required</span>
                 </li>
               </ul>
+              
+              <Button 
+                className="w-full"
+                onClick={() => handleSelectPlan('DIY')}
+                disabled={isLoadingDIY}
+                data-testid="button-choose-diy"
+              >
+                {isLoadingDIY ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  "Start DIY Plan"
+                )}
+              </Button>
             </CardContent>
           </Card>
 
-          {/* Payment Form */}
-          <div>
-            <Elements stripe={stripePromise} options={{ clientSecret }}>
-              <SubscribeForm />
-            </Elements>
-            
-            {/* Security Notice */}
-            <div className="mt-6 p-4 bg-white/10 backdrop-blur-sm rounded-lg text-white text-center">
-              <div className="flex items-center justify-center mb-2">
-                <CheckCircle className="w-4 h-4 mr-2" />
-                <span className="text-sm font-medium">Secure Payment</span>
-              </div>
-              <p className="text-xs text-blue-100">
-                Your payment information is encrypted and secure. Powered by Stripe.
-              </p>
+          {/* Done-For-You Plan */}
+          <Card className="bg-white relative border-primary border-2" data-testid="card-plan-pro">
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+              <span className="bg-primary text-white px-4 py-1 rounded-full text-sm font-medium">
+                Most Popular
+              </span>
             </div>
-          </div>
+            <CardHeader className="text-center pb-8 pt-8">
+              <CardTitle className="text-2xl mb-2">Done-For-You</CardTitle>
+              <div className="text-4xl font-bold text-primary mb-2">$149.99</div>
+              <CardDescription className="text-base">per month</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <ul className="space-y-4">
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm font-medium">Everything in DIY</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm">Auto-mail Certified Letters</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm">CRM integration & tracking</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm">SMS & email notifications</span>
+                </li>
+              </ul>
+              
+              <Button 
+                className="w-full bg-primary hover:bg-primary/90"
+                onClick={() => handleSelectPlan('DONE_FOR_YOU')}
+                disabled={isLoadingPro}
+                data-testid="button-choose-pro"
+              >
+                {isLoadingPro ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  "Start Pro Plan"
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Enterprise Plan */}
+          <Card className="bg-white" data-testid="card-plan-enterprise">
+            <CardHeader className="text-center pb-8">
+              <CardTitle className="text-2xl mb-2">Enterprise</CardTitle>
+              <div className="text-4xl font-bold text-primary mb-2">Custom</div>
+              <CardDescription className="text-base">For credit repair businesses</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <ul className="space-y-4">
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm">Everything in Pro</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm">Multiple clients</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm">White-label options</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                  <span className="text-sm">Dedicated support</span>
+                </li>
+              </ul>
+              
+              <Button 
+                variant="outline" 
+                className="w-full"
+                onClick={() => window.location.href = 'mailto:sales@personalcreditpros.com'}
+                data-testid="button-contact-sales"
+              >
+                Contact Sales
+              </Button>
+            </CardContent>
+          </Card>
         </div>
 
-        {/* FAQ */}
-        <div className="max-w-2xl mx-auto mt-12">
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 text-white">
-            <h3 className="text-lg font-semibold mb-4 text-center">Frequently Asked Questions</h3>
-            <div className="space-y-4 text-sm">
-              <div>
-                <p className="font-medium mb-1">How does automated mailing work?</p>
-                <p className="text-blue-100">We send your dispute letters via Click2Mail with certified delivery and tracking numbers.</p>
-              </div>
-              <div>
-                <p className="font-medium mb-1">Can I cancel my subscription?</p>
-                <p className="text-blue-100">Yes, you can cancel anytime from your dashboard. No long-term contracts.</p>
-              </div>
-              <div>
-                <p className="font-medium mb-1">What if I need help?</p>
-                <p className="text-blue-100">Pro members get priority support and enhanced AI assistance 24/7.</p>
-              </div>
+        {/* Why Choose Section */}
+        <div className="max-w-4xl mx-auto mt-16 text-white text-center">
+          <h3 className="text-2xl font-bold mb-8">Why Choose Personal Credit Pros?</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6">
+              <div className="text-4xl mb-4">🤖</div>
+              <h4 className="font-semibold mb-2">AI-Powered Analysis</h4>
+              <p className="text-sm text-blue-100">Advanced AI scans for Metro2 and FCRA violations</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6">
+              <div className="text-4xl mb-4">⚖️</div>
+              <h4 className="font-semibold mb-2">Legal Compliance</h4>
+              <p className="text-sm text-blue-100">Letters cite FCRA, FDCPA, and case law</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6">
+              <div className="text-4xl mb-4">📈</div>
+              <h4 className="font-semibold mb-2">Proven Results</h4>
+              <p className="text-sm text-blue-100">Automated follow-ups and tracking</p>
             </div>
           </div>
         </div>
