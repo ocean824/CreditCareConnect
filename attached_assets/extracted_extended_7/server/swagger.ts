@@ -26,10 +26,16 @@ export function setupSwagger(app) {
       return res.status(503).json({ message: "Service unavailable: Documentation access not configured" });
     }
     const token = req.headers['x-admin-token'];
-    if (token && typeof token === 'string' && 
-        timingSafeEqual(Buffer.from(token), Buffer.from(validToken))) {
-      return swaggerUi.serve(req, res, next);
+    
+    if (token && typeof token === 'string' && token.length === validToken.length) {
+      try {
+        const isValid = timingSafeEqual(Buffer.from(token), Buffer.from(validToken));
+        if (isValid) return swaggerUi.serve(req, res, next);
+      } catch {
+        // Buffer conversion failed, treat as invalid
+      }
     }
+    
     return res.status(403).json({ message: "Forbidden: Admin token required" });
   }, swaggerUi.setup(swaggerSpec));
 }

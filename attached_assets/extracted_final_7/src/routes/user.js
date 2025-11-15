@@ -19,12 +19,10 @@ window.validateUserLogin = () => {
   const email = document.getElementById("userEmail").value;
   const pass = document.getElementById("userPassword").value;
   const msg = document.getElementById("userLoginMsg");
-  if (email === "user@domain.com" && pass === "user1234") {
-    msg.textContent = "✅ Logged in! Redirecting to dashboard...";
-    setTimeout(() => mountUserDashboard(), 1500);
-  } else {
-    msg.textContent = "❌ Invalid email or password.";
-    msg.style.color = "red";
-  }
+  // CRITICAL SECURITY FIX: Hardcoded credentials removed
+  // Client-side authentication is inherently insecure and can be easily bypassed
+  // Implement proper server-side authentication using secure methods
+  msg.textContent = "❌ Authentication disabled. Implement server-side authentication.";
+  msg.style.color = "red";
 };
 
