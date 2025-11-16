@@ -192,6 +192,17 @@ export default function Landing() {
             Start improving your credit score today
           </p>
         </div>
+
+        {/* Admin Link */}
+        <div className="text-center mt-12 pb-8">
+          <button
+            onClick={handleLogin}
+            className="text-white/60 hover:text-white/90 text-xs underline underline-offset-4 transition-colors"
+            data-testid="link-admin"
+          >
+            Admin Access
+          </button>
+        </div>
       </div>
     </div>
   );
