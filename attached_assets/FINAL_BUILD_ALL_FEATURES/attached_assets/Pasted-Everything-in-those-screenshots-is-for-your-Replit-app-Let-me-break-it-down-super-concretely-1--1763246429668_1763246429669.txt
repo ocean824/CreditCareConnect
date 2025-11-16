@@ -1,0 +1,115 @@
+Everything in those screenshots is for your Replit app.
+
+Let me break it down super concretely.
+
+1. What those screens are showing
+
+For each “event destination” you created:
+
+Destination URL: https://www.personalcreditpros.com (this should actually be your webhook path, see below).
+
+Signing secret: the whsec_... string Stripe generated.
+
+Stripe is saying:
+
+“I will send events to this URL, and I’ll sign them using this secret. Use that secret in your server to verify the events.”
+
+2. Where to put the URL
+
+Your Replit app needs a webhook route like:
+
+https://www.personalcreditpros.com/api/stripe/webhook
+
+
+or similar (whatever route your app exposes).
+
+In Stripe’s “Destination URL”, you should set:
+
+https://www.personalcreditpros.com/api/stripe/webhook
+(or your Replit URL + path, e.g. https://your-repl-name.your-user.repl.co/api/stripe/webhook)
+
+Do not leave it as just the bare domain unless your webhook is actually mounted at /.
+
+3. Where to put the Signing secret (the whsec_...)
+
+This goes in Replit → Secrets / Environment variables, not in Stripe:
+
+In your Replit project:
+
+Click the 🔑 Secrets / Environment tab.
+
+Add a new secret, e.g.:
+
+STRIPE_WEBHOOK_SECRET_SNAPSHOT = whsec_...  (first one)
+STRIPE_WEBHOOK_SECRET_THIN     = whsec_...  (second one, if you keep both)
+
+
+In your Node/Express server code (example):
+
+import Stripe from 'stripe';
+import express from 'express';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2024-06-20', // or your version
+});
+
+const app = express();
+
+// Raw body middleware just for this route
+app.post(
+  '/api/stripe/webhook',
+  express.raw({ type: 'application/json' }),
+  (req, res) => {
+    const sig = req.headers['stripe-signature'] as string;
+
+    const endpointSecret =
+      process.env.STRIPE_WEBHOOK_SECRET_SNAPSHOT; // or _THIN
+
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        endpointSecret!
+      );
+    } catch (err: any) {
+      console.error('Webhook signature verification failed', err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Handle the event
+    switch (event.type) {
+      case 'checkout.session.completed':
+        // your logic here
+        break;
+      case 'invoice.paid':
+        // your logic here
+        break;
+      // ...etc
+    }
+
+    res.json({ received: true });
+  }
+);
+
+
+Key points:
+
+Your code reads the secret from process.env.STRIPE_WEBHOOK_SECRET_*, not from a hard-coded string.
+
+Stripe sends the event to your webhook URL.
+
+The secret is only used by your app to verify that Stripe really sent it.
+
+4. Snapshot vs Thin payload
+
+Snapshot: big payload (full object state, sometimes before/after).
+
+Thin: minimal payload.
+
+From your app’s viewpoint, both are just events that go through the same webhook handler above; the difference is only how much data you receive.
+
+You can:
+
+Use only one (usually snapshot) and ignore the other

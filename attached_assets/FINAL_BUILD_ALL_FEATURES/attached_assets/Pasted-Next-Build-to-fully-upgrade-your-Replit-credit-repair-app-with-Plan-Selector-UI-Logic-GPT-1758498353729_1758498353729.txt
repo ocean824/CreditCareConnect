@@ -1,0 +1,178 @@
+Next Build to fully upgrade your Replit credit repair app with:
+
+🔧 Plan Selector UI + Logic
+
+🤖 GPT AI Assistant (plan-aware)
+
+📽️ Dynamic Video Walkthrough (DIY vs Pro)
+
+📦 Downloadable .zip + Replit-ready project
+
+✅ 1. 🔧 Plan Selector UI + Logic
+📄 main.py (Add this to existing FastAPI app)
+from fastapi import Form, Cookie
+from fastapi.responses import RedirectResponse
+
+import json
+
+def load_user(email):
+    with open("users.json") as f:
+        users = json.load(f)
+    return users.get(email)
+
+def save_user(email, user_data):
+    with open("users.json") as f:
+        users = json.load(f)
+    users[email] = user_data
+    with open("users.json", "w") as f:
+        json.dump(users, f, indent=2)
+
+@app.get("/select-plan", response_class=HTMLResponse)
+def select_plan(request: Request, user_email: str = Cookie(None)):
+    if not user_email:
+        return RedirectResponse("/login")
+    return templates.TemplateResponse("select_plan.html", {"request": request})
+
+@app.post("/select-plan")
+def update_plan(plan: str = Form(...), user_email: str = Cookie(None)):
+    if not user_email:
+        return RedirectResponse("/login")
+    user = load_user(user_email)
+    user["plan"] = plan
+    save_user(user_email, user)
+    return RedirectResponse("/dashboard", status_code=302)
+
+📄 templates/select_plan.html
+<!DOCTYPE html>
+<html>
+<head><title>Choose Your Credit Repair Plan</title></head>
+<body>
+  <h2>Select Your Plan</h2>
+  <form method="post">
+    <label>
+      <input type="radio" name="plan" value="diy" required> Do It Yourself (Free)
+    </label><br>
+    <label>
+      <input type="radio" name="plan" value="pro"> Done For You ($149.99/month)
+    </label><br><br>
+    <button type="submit">Continue</button>
+  </form>
+</body>
+</html>
+
+
+📁 Example users.json
+
+{
+  "john@example.com": {
+    "password": "secret123",
+    "plan": "diy"
+  }
+}
+
+🤖 2. GPT AI Assistant Integration (Plan-Aware)
+📄 ai_assistant.py
+import openai
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+def get_ai_reply(user_input, plan):
+    system_prompt = {
+        "diy": """You are a credit repair coach for DIY users.
+You help them understand dispute letters and guide them to send letters manually. Do NOT mention automated tools, mailing services, or CRM.""",
+        "pro": """You are an AI assistant for a full-service automated credit repair app.
+You track dispute letter status, mailing confirmations, and CRM updates. Help the user understand what's happening behind the scenes."""
+    }
+
+    chat = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_prompt[plan]},
+            {"role": "user", "content": user_input}
+        ]
+    )
+    return chat.choices[0].message.content
+
+📄 main.py (Add AI endpoint)
+@app.post("/ai")
+async def ai_chat(request: Request, user_email: str = Cookie(None), user_input: str = Form(...)):
+    user = load_user(user_email)
+    plan = user.get("plan", "diy")
+    reply = get_ai_reply(user_input, plan)
+    return {"reply": reply}
+
+📄 templates/dashboard.html (AI chat form)
+<form action="/ai" method="post">
+  <input type="text" name="user_input" placeholder="Ask the AI..." required>
+  <button type="submit">Ask</button>
+</form>
+
+📽️ 3. Dynamic Video Walkthrough
+📁 /static/videos/
+
+onboarding_diy.mp4
+
+onboarding_pro.mp4
+
+📄 templates/dashboard.html (video container)
+<h3>Walkthrough Video</h3>
+<video width="600" controls>
+  <source src="/static/videos/onboarding_{{ plan }}.mp4" type="video/mp4">
+</video>
+
+📄 main.py (dashboard template context)
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request, user_email: str = Cookie(None)):
+    if not user_email:
+        return RedirectResponse("/login")
+    user = load_user(user_email)
+    plan = user.get("plan", "diy")
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "email": user_email,
+        "plan": plan
+    })
+
+📦 4. Project Packaging for Deployment
+
+🧰 Your project includes:
+
+/credit-repair-bot/
+├── main.py
+├── users.json
+├── .env.example
+├── requirements.txt
+├── ai_assistant.py
+├── templates/
+│   ├── dashboard.html
+│   ├── select_plan.html
+├── static/videos/
+│   ├── onboarding_diy.mp4
+│   └── onboarding_pro.mp4
+
+✅ Download
+
+🧳 Download ZIP: 🔗 Download credit-repair-bot.zip
+ ← (link to be provided)
+📁 Replit Template: 🔗 Fork this project on Replit
+ ← (will deploy & share)
+
+🔍 Live Client Workflow (Now with Plan Selection + AI + Video)
+
+Client logs in (/login)
+
+Redirects to /select-plan
+
+DIY (free) or Pro ($149.99)
+
+Dashboard shows:
+
+✅ AI support (plan-aware)
+
+✅ Video walkthrough for plan
+
+✅ Upload/letter gen/email/send based on plan

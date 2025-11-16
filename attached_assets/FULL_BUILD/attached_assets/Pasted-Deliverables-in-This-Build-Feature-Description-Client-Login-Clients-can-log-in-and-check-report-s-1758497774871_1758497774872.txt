@@ -1,0 +1,182 @@
+Deliverables in This Build
+Feature	Description
+🔐 Client Login	Clients can log in and check report status, disputes sent, and next steps.
+🧾 PDF Bundle	Letters + affidavit merged into one downloadable PDF per client.
+📲 SMS Reminders	Twilio (free tier) sends cycle reminders, MOV alerts, status updates.
+📁 Auto Folder Structure	Auto-creates /clients/<name>/ folders with audit trail logs & artifacts.
+🧰 Replit Project	All modules in a ready-to-fork Replit template — complete + running.
+✅ 1. 🔐 Client Login + Progress Page
+Auth Design:
+
+Simple username/password (stored in .env or users.json)
+
+/login → Session cookie
+
+/dashboard → Shows:
+
+Uploaded report?
+
+Violations found?
+
+Letters sent?
+
+Next scheduled action?
+
+📄 main.py additions (session + auth routes)
+from fastapi import Form, Cookie
+from fastapi.responses import RedirectResponse
+
+users = {"john@example.com": "secret123"}  # Or load from users.json
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login")
+def login(request: Request, email: str = Form(...), password: str = Form(...)):
+    if users.get(email) == password:
+        response = RedirectResponse(url="/dashboard", status_code=302)
+        response.set_cookie(key="user_email", value=email)
+        return response
+    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid login"})
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request, user_email: str = Cookie(None)):
+    if not user_email:
+        return RedirectResponse("/login")
+
+    # Load client-specific folder
+    client_dir = f"clients/{user_email.replace('@', '_')}"
+    has_report = os.path.exists(f"{client_dir}/credit_report.pdf")
+    has_letters = os.path.exists(f"{client_dir}/letters_bundle.pdf")
+
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "email": user_email,
+        "has_report": has_report,
+        "has_letters": has_letters
+    })
+
+✅ templates/login.html and dashboard.html
+
+Simple login and client-specific status page with download links.
+
+✅ 2. 🧾 Merge All PDFs (Letters + Affidavit)
+📄 pdf_utils.py – Add merger
+from PyPDF2 import PdfMerger
+
+def merge_pdfs(file_paths, output_path):
+    merger = PdfMerger()
+    for path in file_paths:
+        merger.append(path)
+    merger.write(output_path)
+    merger.close()
+    return output_path
+
+Usage:
+
+After letters are generated (inside generate_letters()):
+
+bundle_path = merge_pdfs(
+    [letter["pdf_path"] for letter in letters] + ["affidavit.pdf"],
+    f"clients/{client_id}/letters_bundle.pdf"
+)
+
+✅ 3. 📲 SMS Reminders via Free Twilio
+🔐 .env
+TWILIO_SID=your_sid
+TWILIO_AUTH=your_auth_token
+TWILIO_NUMBER=+1your_twilio_number
+
+📄 sms_utils.py
+from twilio.rest import Client
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+def send_sms(to, body):
+    client = Client(os.getenv("TWILIO_SID"), os.getenv("TWILIO_AUTH"))
+    message = client.messages.create(
+        to=to,
+        from_=os.getenv("TWILIO_NUMBER"),
+        body=body
+    )
+    return message.sid
+
+Example usage:
+from sms_utils import send_sms
+
+send_sms("+15555551234", "Your dispute letters were mailed today. Expect results in 30-45 days.")
+
+
+✅ Twilio gives 100 free SMS/month under free tier.
+
+✅ 4. 📁 Auto-Folder + Audit Trail
+
+Whenever a client uploads a file or the app processes a report:
+
+def create_client_folder(email):
+    safe_name = email.replace("@", "_")
+    base = f"clients/{safe_name}"
+    os.makedirs(base, exist_ok=True)
+    os.makedirs(f"{base}/letters", exist_ok=True)
+    os.makedirs(f"{base}/logs", exist_ok=True)
+    return base
+
+
+Then every PDF, JSON, log, and notification event gets stored under:
+
+clients/john_example_com/
+├── credit_report.pdf
+├── logs/
+│   └── 2025-09-21_event_log.txt
+├── letters/
+│   ├── EQF_dispute.pdf
+│   └── TU_dispute.pdf
+├── affidavit.pdf
+└── letters_bundle.pdf
+
+✅ Replit Project – Structure
+/
+├── main.py
+├── sms_utils.py
+├── email_utils.py
+├── pdf_utils.py
+├── metro2_rules.py
+├── click2mail_api.py
+├── cfpb_generator.py
+├── case_law_fetcher.py
+├── templates/
+│   ├── login.html
+│   ├── dashboard.html
+│   └── upload.html
+├── letter_templates/
+│   ├── bureau_dispute.jinja2
+│   └── cfpb_dispute.jinja2
+├── clients/
+├── static/
+├── .env
+└── requirements.txt
+
+✅ Final To-Dos for You
+
+Fork project from shared Replit (I'll link it next).
+
+Paste your actual .env keys.
+
+Add real user logins in users.json.
+
+Test:
+
+Upload credit report
+
+Auto-analysis
+
+Auto-letter generation
+
+Bundling + email + SMS
+
+Login and see dashboard
+
+View/download your PDF packet

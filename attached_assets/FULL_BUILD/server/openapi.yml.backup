@@ -1,0 +1,942 @@
+openapi: 3.0.3
+info:
+  title: Personal Credit Pros API
+  version: 1.0.0
+  description: >
+    REST API for Personal Credit Pros credit repair automation platform.
+    Real auth is Replit OIDC session-based; a test-only header auth exists when TEST_AUTH=1.
+servers:
+  - url: /
+tags:
+  - name: Public
+  - name: Auth
+  - name: User
+  - name: Admin
+  - name: CreditReports
+  - name: Violations
+  - name: DisputeLetters
+  - name: Payments
+  - name: Chat
+  - name: CFPB
+  - name: Notifications
+  - name: Webhooks
+  - name: Observability
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: connect.sid
+      description: Session-based auth (Replit OIDC)
+    testHeaderAuth:
+      type: apiKey
+      in: header
+      name: X-Test-User
+      description: Test-only auth (requires TEST_AUTH=1)
+  schemas:
+    Error:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          example: Invalid input data
+        details:
+          type: object
+          additionalProperties: true
+        requestId:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+        plan:
+          type: string
+          enum: [DIY, DONE_FOR_YOU, ENTERPRISE]
+        role:
+          type: string
+          enum: [user, admin]
+        createdAt:
+          type: string
+          format: date-time
+    CreditReport:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        fileName:
+          type: string
+        fileUrl:
+          type: string
+        bureau:
+          type: string
+          enum: [EQUIFAX, EXPERIAN, TRANSUNION]
+        analysisStatus:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED]
+        analysisResult:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+    Violation:
+      type: object
+      properties:
+        id:
+          type: string
+        creditReportId:
+          type: string
+        accountName:
+          type: string
+        accountNumber:
+          type: string
+        bureau:
+          type: string
+          enum: [EQUIFAX, EXPERIAN, TRANSUNION]
+        violationType:
+          type: string
+        description:
+          type: string
+        statute:
+          type: string
+        severity:
+          type: string
+          enum: [HIGH, MEDIUM, LOW]
+        status:
+          type: string
+          enum: [IDENTIFIED, DISPUTED, RESOLVED]
+        createdAt:
+          type: string
+          format: date-time
+    DisputeLetter:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        bureau:
+          type: string
+          enum: [EQUIFAX, EXPERIAN, TRANSUNION]
+        letterType:
+          type: string
+          enum: [INITIAL, FOLLOWUP, FINAL]
+        content:
+          type: string
+        pdfUrl:
+          type: string
+        status:
+          type: string
+          enum: [GENERATED, MAILED, DELIVERED, RESPONDED]
+        createdAt:
+          type: string
+          format: date-time
+paths:
+  /healthz:
+    get:
+      tags: [Observability]
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+  /readyz:
+    get:
+      tags: [Observability]
+      summary: Readiness probe (checks database)
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ready
+        '503':
+          description: Service not ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: not-ready
+  /api/auth/user:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated user from session
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Current user object or null if not authenticated
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/User'
+                  - type: 'null'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/me:
+    get:
+      tags: [User]
+      summary: Get current user profile with role
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  email:
+                    type: string
+                  name:
+                    type: string
+                  role:
+                    type: string
+                    enum: [user, admin]
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/paypal/setup:
+    get:
+      tags: [Payments]
+      summary: Get PayPal configuration
+      responses:
+        '200':
+          description: PayPal client ID and configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clientId:
+                    type: string
+  /api/paypal/order:
+    post:
+      tags: [Payments]
+      summary: Create PayPal order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan:
+                  type: string
+                  enum: [DIY, DONE_FOR_YOU]
+      responses:
+        '200':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId:
+                    type: string
+  /api/paypal/order/{orderID}/capture:
+    post:
+      tags: [Payments]
+      summary: Capture PayPal order
+      parameters:
+        - name: orderID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /api/create-subscription:
+    post:
+      tags: [Payments]
+      summary: Create subscription for current user
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscriptionId:
+                    type: string
+                  status:
+                    type: string
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found
+  /api/credit-reports:
+    get:
+      tags: [CreditReports]
+      summary: List credit reports for current user
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: List of credit reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CreditReport'
+        '401':
+          description: Unauthorized
+  /api/credit-reports/upload:
+    post:
+      tags: [CreditReports]
+      summary: Upload credit report for analysis
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileName, fileUrl, bureau]
+              properties:
+                fileName:
+                  type: string
+                fileUrl:
+                  type: string
+                bureau:
+                  type: string
+                  enum: [EQUIFAX, EXPERIAN, TRANSUNION]
+      responses:
+        '200':
+          description: Credit report uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditReport'
+        '401':
+          description: Unauthorized
+        '500':
+          description: Upload failed
+  /api/violations:
+    get:
+      tags: [Violations]
+      summary: List violations for current user
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: List of violations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Violation'
+        '401':
+          description: Unauthorized
+  /api/dispute-letters:
+    get:
+      tags: [DisputeLetters]
+      summary: List dispute letters for current user
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: List of dispute letters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DisputeLetter'
+        '401':
+          description: Unauthorized
+  /api/dispute-letters/generate:
+    post:
+      tags: [DisputeLetters]
+      summary: Generate a dispute letter
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bureau, violationIds]
+              properties:
+                bureau:
+                  type: string
+                  enum: [EQUIFAX, EXPERIAN, TRANSUNION]
+                violationIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Dispute letter generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DisputeLetter'
+        '400':
+          description: Invalid request
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found
+  /api/dispute-letters/{id}/download:
+    get:
+      tags: [DisputeLetters]
+      summary: Download dispute letter PDF
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Unauthorized
+        '404':
+          description: Letter not found
+  /api/chat:
+    post:
+      tags: [Chat]
+      summary: Send message to AI assistant
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                conversationId:
+                  type: string
+      responses:
+        '200':
+          description: AI response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  response:
+                    type: string
+                  messages:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found
+  /api/cfpb-complaints/generate:
+    post:
+      tags: [CFPB]
+      summary: Generate CFPB complaint packet
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: CFPB complaint generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  content:
+                    type: string
+                  pdfUrl:
+                    type: string
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found
+  /api/freeze-opt-out:
+    post:
+      tags: [Public]
+      summary: Submit freeze/opt-out automation request
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agencies:
+                  type: array
+                  items:
+                    type: string
+                    enum: [lexisnexis, cotality, innovis, optoutprescreen, sagestream]
+      responses:
+        '200':
+          description: Request submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '401':
+          description: Unauthorized
+  /notify/answer:
+    get:
+      tags: [Notifications]
+      summary: One-time token action for yes/no response
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Answer recorded
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Invalid token
+  /notify/upload:
+    get:
+      tags: [Notifications]
+      summary: Display upload form for bureau response
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Upload form HTML
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Missing token
+    post:
+      tags: [Notifications]
+      summary: Upload bureau response document
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                letter:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Upload successful
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Upload failed
+  /webhooks/click2mail:
+    post:
+      tags: [Webhooks]
+      summary: Click2Mail delivery webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jobId:
+                  type: string
+                event:
+                  type: string
+                  enum: [submitted, in_transit, delivered]
+                tracking:
+                  type: string
+                proofUrl:
+                  type: string
+      responses:
+        '200':
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '500':
+          description: Processing error
+  /api/admin/whoami:
+    get:
+      tags: [Admin]
+      summary: Admin session introspection for testing
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Admin session info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  email:
+                    type: string
+                  isAdmin:
+                    type: boolean
+        '403':
+          description: Forbidden (not admin)
+  /api/admin/stats:
+    get:
+      tags: [Admin]
+      summary: Get admin dashboard statistics
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalUsers:
+                    type: integer
+                  totalCases:
+                    type: integer
+                  totalLetters:
+                    type: integer
+                  pendingResponses:
+                    type: integer
+        '403':
+          description: Forbidden (not admin)
+  /api/admin/users:
+    get:
+      tags: [Admin]
+      summary: List all users
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '403':
+          description: Forbidden (not admin)
+  /api/admin/users/{id}/role:
+    put:
+      tags: [Admin]
+      summary: Change user role
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [user, admin]
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid role
+        '403':
+          description: Forbidden (not admin)
+        '404':
+          description: User not found
+  /api/admin/cases:
+    get:
+      tags: [Admin]
+      summary: List all cases
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: List of cases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '403':
+          description: Forbidden (not admin)
+  /api/admin/cases/{id}:
+    get:
+      tags: [Admin]
+      summary: Get case details
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Case details
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden (not admin)
+        '404':
+          description: Case not found
+  /api/admin/cases/eligible-day34:
+    get:
+      tags: [Admin]
+      summary: List cases eligible for day-34 follow-up
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: List of eligible cases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '403':
+          description: Forbidden (not admin)
+  /api/admin/cases/bulk-remind-day34:
+    post:
+      tags: [Admin]
+      summary: Send day-34 reminders to all eligible cases
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Reminders sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+        '403':
+          description: Forbidden (not admin)
+  /api/admin/letters:
+    get:
+      tags: [Admin]
+      summary: List all dispute letters
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: List of dispute letters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DisputeLetter'
+        '403':
+          description: Forbidden (not admin)
+  /api/admin/letters/{id}/remind-day34:
+    post:
+      tags: [Admin]
+      summary: Send day-34 reminder for specific letter
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reminder sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '403':
+          description: Forbidden (not admin)
+        '404':
+          description: Letter not found
+  /api/admin/letters/{id}/remail:
+    post:
+      tags: [Admin]
+      summary: Resend dispute letter via Click2Mail
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Letter remailed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '403':
+          description: Forbidden (not admin)
+        '404':
+          description: Letter not found
+  /api/admin/responses:
+    get:
+      tags: [Admin]
+      summary: List all client responses
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: List of client responses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '403':
+          description: Forbidden (not admin)
+  /api/admin/audit:
+    get:
+      tags: [Admin]
+      summary: Get audit log
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    actorId:
+                      type: string
+                    action:
+                      type: string
+                    resourceType:
+                      type: string
+                    resourceId:
+                      type: string
+                    details:
+                      type: object
+                    createdAt:
+                      type: string
+                      format: date-time
+        '403':
+          description: Forbidden (not admin)

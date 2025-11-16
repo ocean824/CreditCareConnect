@@ -4,7 +4,7 @@
 
 Personal Credit Pros is a comprehensive credit repair automation platform that leverages AI to analyze credit reports, identify FCRA and Metro2 violations, generate dispute letters, and manage the entire dispute lifecycle. The platform offers both DIY and Done-For-You service tiers with automated mailing, CRM integration, and client communication features.
 
-The system is built as a full-stack web application using React frontend with TypeScript, Express/FastAPI backend, and PostgreSQL database with Drizzle ORM. It integrates with multiple third-party services for payment processing (PayPal), mail delivery (Click2Mail), notifications (Twilio, Gmail), and AI-powered document analysis.
+The system is built as a full-stack web application using React frontend with TypeScript, Express/FastAPI backend, and PostgreSQL database with Drizzle ORM. It integrates with multiple third-party services for payment processing (Stripe), mail delivery (Click2Mail), notifications (Twilio, Gmail), and AI-powered document analysis.
 
 ## User Preferences
 
@@ -103,9 +103,9 @@ Preferred communication style: Simple, everyday language.
 ### External Dependencies
 
 **Payment Processing**:
-- PayPal Server SDK for subscription management and order processing
-- Stripe integration (React Stripe.js) as alternative payment option
-- Environment-specific sandbox vs production modes
+- Stripe integration (React Stripe.js) for subscription management and payment processing
+- Optional integration with graceful degradation when API key is missing
+- Environment-specific test vs production modes
 
 **Mail Delivery**:
 - Click2Mail REST API for automated physical letter mailing
@@ -145,7 +145,7 @@ Preferred communication style: Simple, everyday language.
 - Admin audit logging for all sensitive operations
 
 **Payment Security**:
-- PCI compliance through PayPal/Stripe hosted payment pages
+- PCI compliance through Stripe hosted payment pages
 - No direct credit card handling in application code
 - Subscription ID storage for billing management without sensitive data
 

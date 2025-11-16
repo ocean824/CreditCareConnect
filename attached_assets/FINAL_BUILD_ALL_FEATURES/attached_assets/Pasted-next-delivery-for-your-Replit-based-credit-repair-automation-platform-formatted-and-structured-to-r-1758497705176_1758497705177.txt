@@ -1,0 +1,178 @@
+next delivery for your Replit-based credit repair automation platform, formatted and structured to run natively in Replit, and using only free tools.
+
+✅ Next Build Summary
+Feature	Description	Tools Used
+📂 File Upload UI	Web interface for manual users to upload credit reports	FastAPI, HTML, UploadFile
+🧾 CFPB Packet Generator	Automatically generates escalation letters + PDF evidence	Jinja2, WeasyPrint
+🕵️ Auto Case Law Citations	Adds relevant court cases to each letter, filtered for negative history	CourtListener API (free)
+📆 Dispute Calendar	Tracks dispute cycles in Google Sheets & sends reminders	Google Apps Script (free)
+📂 1. File Upload UI for Manual Users
+✅ main.py additions
+from fastapi import Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import shutil
+import os
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+@app.get("/upload", response_class=HTMLResponse)
+async def upload_form(request: Request):
+    return templates.TemplateResponse("upload.html", {"request": request})
+
+@app.post("/upload")
+async def upload_file(file: UploadFile, request: Request):
+    os.makedirs("uploads", exist_ok=True)
+    file_path = f"uploads/{file.filename}"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Process it after upload
+    return templates.TemplateResponse("upload.html", {
+        "request": request,
+        "message": f"✅ {file.filename} uploaded successfully!"
+    })
+
+✅ templates/upload.html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upload Credit Report</title>
+</head>
+<body>
+    <h1>Upload Credit Report</h1>
+    <form action="/upload" enctype="multipart/form-data" method="post">
+        <input name="file" type="file" required>
+        <button type="submit">Upload</button>
+    </form>
+    {% if message %}
+        <p style="color:green;">{{ message }}</p>
+    {% endif %}
+</body>
+</html>
+
+🧾 2. CFPB Packet Generator
+✅ cfpb_generator.py
+from jinja2 import Environment, FileSystemLoader
+from weasyprint import HTML
+from datetime import date
+import os
+
+env = Environment(loader=FileSystemLoader("letter_templates"))
+
+def generate_cfpb_packet(findings, client_info):
+    template = env.get_template("cfpb_dispute.jinja2")
+
+    rendered = template.render(
+        name=client_info["name"],
+        address=client_info["address"],
+        dob=client_info["dob"],
+        ssn_last4=client_info["ssn_last4"],
+        today=str(date.today()),
+        findings=findings
+    )
+
+    os.makedirs("cfpb_packets", exist_ok=True)
+    output_path = f"cfpb_packets/CFPB_{client_info['name'].replace(' ', '_')}.pdf"
+    HTML(string=rendered).write_pdf(output_path)
+    return output_path
+
+✅ letter_templates/cfpb_dispute.jinja2
+{{ name }}
+{{ address }}
+DOB: {{ dob }} | SSN: XXX-XX-{{ ssn_last4 }}
+Date: {{ today }}
+
+Consumer Financial Protection Bureau  
+PO Box 27170  
+Washington, DC 20038
+
+Subject: Formal Complaint – Violations Under FCRA/FDCPA
+
+Dear CFPB,
+
+I am submitting this complaint regarding multiple violations by {{ findings | length }} items reported inaccurately to credit reporting agencies.
+
+Summary of issues:
+{% for item in findings %}
+- {{ item.account }} ({{ item.bureau }}): {{ item.issue }} — Statutes: {{ item.statutes | join(", ") }}
+{% endfor %}
+
+Please investigate and intervene where applicable. Supporting evidence and dispute history are attached.
+
+Sincerely,  
+{{ name }}
+
+🕵️ 3. Case Law Auto-Citation Check (Free API)
+
+Use the CourtListener API
+ to fetch real case law (federal/state) and exclude overturned or vacated cases.
+
+✅ case_law_fetcher.py
+import requests
+
+def get_supporting_cases(statute):
+    results = []
+    search = statute.replace("§", "section").replace(" ", "+")
+    url = f"https://www.courtlistener.com/api/rest/v3/search/?q={search}&type=o&order_by=dateFiled+desc&page_size=3"
+
+    try:
+        r = requests.get(url)
+        r.raise_for_status()
+        data = r.json()
+        for item in data["results"]:
+            title = item["caseName"]
+            cite = item["cite"]
+            summary = item["summary"][:250] + "..." if "summary" in item else "No summary."
+            if "vacated" not in summary.lower() and "overruled" not in summary.lower():
+                results.append(f"{title} ({cite}): {summary}")
+    except Exception as e:
+        results.append(f"Error fetching cases: {str(e)}")
+
+    return results
+
+✅ Example Usage (in pdf_utils.py)
+from case_law_fetcher import get_supporting_cases
+
+for finding in findings:
+    finding["cases"] = get_supporting_cases(finding["statutes"][0])
+
+
+Add {{ finding.cases }} to your Jinja2 letter templates as a "Case Law Appendix".
+
+📆 4. Dispute Calendar in Google Sheets + Reminder
+✅ Sheet Structure
+Name	Email	Date Sent	Dispute Type	Next Reminder	Status
+John	john@x.com
+	2025-09-21	CRA Dispute	2025-10-25	Awaiting
+✅ Google Apps Script (bound to Sheet)
+
+Go to: Extensions > Apps Script
+
+function sendReminders() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const now = new Date();
+  const rows = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < rows.length; i++) {
+    const email = rows[i][1];
+    const reminderDate = new Date(rows[i][4]);
+
+    if (now.toDateString() === reminderDate.toDateString()) {
+      GmailApp.sendEmail(email, "Dispute Reminder", "Hi! It's time to follow up on your credit dispute. Please log in or contact us.");
+    }
+  }
+}
+
+
+Trigger it daily:
+Go to: Triggers > Add Trigger → sendReminders → Time-based → Every day
+
+✅ Summary of What You Now Have
+Feature	Ready To Use
+File Upload Page	✅ /upload
+CFPB Packet Generator	✅ generate_cfpb_packet()
+Case Law Auto-Citations	✅ case_law_fetcher.py
+Dispute Calendar	✅ Google Sheet + Script
