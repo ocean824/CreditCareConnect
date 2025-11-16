@@ -34,10 +34,18 @@ import {
   runAllFreezes,
   type FreezeUserInfo,
 } from "./services/freezeAgent";
+import adminAuthRouter, { getAdminSession } from "./adminAuth";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
+  
+  // Admin password-based auth session (separate from user OIDC session)
+  app.use("/api/admin", getAdminSession());
+  app.use("/admin", getAdminSession());
+  
+  // Admin password-based auth routes
+  app.use(adminAuthRouter);
 
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {

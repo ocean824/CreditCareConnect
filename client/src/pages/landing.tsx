@@ -195,13 +195,13 @@ export default function Landing() {
 
         {/* Admin Link */}
         <div className="text-center mt-12 pb-8">
-          <button
-            onClick={handleLogin}
+          <a
+            href="/admin/login"
             className="text-white/60 hover:text-white/90 text-xs underline underline-offset-4 transition-colors"
             data-testid="link-admin"
           >
             Admin Access
-          </button>
+          </a>
         </div>
       </div>
     </div>

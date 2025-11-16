@@ -39,6 +39,16 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Admin credentials for password-based login
+export const adminCredentials = pgTable("admin_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  username: varchar("username").unique().notNull(),
+  passwordHash: varchar("password_hash").notNull(),
+  email: varchar("email"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Credit reports uploaded by users
 export const creditReports = pgTable("credit_reports", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -125,6 +135,14 @@ export const cfpbComplaints = pgTable("cfpb_complaints", {
 // Schema types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+
+export const insertAdminCredentialSchema = createInsertSchema(adminCredentials).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertAdminCredential = z.infer<typeof insertAdminCredentialSchema>;
+export type AdminCredential = typeof adminCredentials.$inferSelect;
 
 export const insertCreditReportSchema = createInsertSchema(creditReports).omit({
   id: true,
