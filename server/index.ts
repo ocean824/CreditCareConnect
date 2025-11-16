@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { registerStripeWebhook } from "./stripeWebhook";
+import { registerClick2MailWebhook } from "./click2mailWebhook";
 import "./scheduler";
 import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
@@ -14,9 +15,10 @@ import { registerOpenApi } from "./openapi";
 
 const app = express();
 
-// Stripe webhook MUST be registered BEFORE express.json() 
-// so it can receive raw body for signature verification
+// Webhooks MUST be registered BEFORE express.json() 
+// so they can receive raw body for signature verification
 registerStripeWebhook(app);
+registerClick2MailWebhook(app);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));

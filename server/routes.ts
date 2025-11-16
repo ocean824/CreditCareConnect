@@ -24,6 +24,7 @@ import { db } from "./db";
 import { ocrPdfOrImage, ollamaGenerate } from "./ocr";
 import { eq } from "drizzle-orm";
 import { adminRouter } from "./adminRoutes";
+import { adminOnly } from "./adminOnly";
 import {
   runAllFreezes,
   type FreezeUserInfo,
@@ -473,14 +474,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin Routes (protected by adminOnly middleware)
-  app.get('/api/admin/stats', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/stats', isAuthenticated, adminOnly, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
-      
-      if (user?.role !== 'admin') {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-
       const stats = await storage.getUserStats();
       res.json(stats);
     } catch (error) {
@@ -489,14 +484,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/users', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/users', isAuthenticated, adminOnly, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
-      
-      if (user?.role !== 'admin') {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-
       const users = await storage.getAllUsers();
       res.json(users);
     } catch (error) {
@@ -506,7 +495,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // One-time token routes for client responses
-  const upload = multer({ dest: process.env.FILES_DIR || "./files" });
+  const upload = multer({
+    dest: process.env.FILES_DIR || "./files",
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB limit
+    },
+    fileFilter: (req, file, cb) => {
+      const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+      const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf'];
+      
+      const ext = path.extname(file.originalname).toLowerCase();
+      const mimeValid = allowedMimes.includes(file.mimetype);
+      const extValid = allowedExts.includes(ext);
+      
+      if (mimeValid && extValid) {
+        cb(null, true);
+      } else {
+        cb(new Error('Invalid file type. Only images (JPG, PNG, GIF, WEBP) and PDFs are allowed.'));
+      }
+    }
+  });
 
   app.get('/notify/answer', async (req, res) => {
     try {
@@ -593,56 +601,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Click2Mail webhook
-  app.post('/webhooks/click2mail', async (req, res) => {
-    try {
-      const { jobId, event, tracking, proofUrl } = req.body;
-      
-      // Find the mail batch
-      const batches = await db.select().from(mailBatches).where(eq(mailBatches.click2mailJobId, jobId));
-      const batch = batches[0];
-      
-      if (batch) {
-        // Record delivery event
-        await db.insert(deliveryEvents).values({
-          id: crypto.randomUUID(),
-          batchId: batch.id,
-          kind: event,
-          payload: req.body,
-          createdAt: new Date()
-        });
-
-        // Update batch status and tracking info
-        const updates: any = {};
-        if (tracking) updates.uspsTracking = tracking;
-        if (proofUrl) updates.proofUrl = proofUrl;
-        if (event === "delivered") updates.status = "delivered";
-        else if (event === "in_transit") updates.status = "in_transit";
-
-        if (Object.keys(updates).length > 0) {
-          await db.update(mailBatches).set(updates).where(eq(mailBatches.id, batch.id));
-        }
-
-        // Notify client if delivered with proof
-        if (proofUrl && batch.clientId) {
-          const client = (await db.select().from(users).where(eq(users.id, batch.clientId)))[0];
-          if (client?.email) {
-            await notificationService.sendEmail(
-              client.email,
-              "Dispute Letter Delivered",
-              `Your dispute letter to ${batch.bureau} has been delivered. <a href="${proofUrl}">View proof of delivery</a>`
-            );
-          }
-        }
-      }
-
-      res.json({ success: true });
-    } catch (err: any) {
-      console.error("Click2Mail webhook error:", err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
   /**
    * Submit freeze and opt-out requests on behalf of the authenticated user.
    *
@@ -726,14 +684,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/health', (req, res) => {
     res.json({ 
       status: 'healthy',
-      timestamp: new Date().toISOString(),
-      services: {
-        database: 'connected',
-        paypal: process.env.PAYPAL_CLIENT_ID ? 'configured' : 'not configured',
-        openai: process.env.OPENAI_API_KEY ? 'configured' : 'not configured',
-        click2mail: process.env.CLICK2MAIL_API_KEY ? 'configured' : 'not configured',
-        twilio: process.env.TWILIO_ACCOUNT_SID ? 'configured' : 'not configured'
-      }
+      timestamp: new Date().toISOString()
     });
   });
 
