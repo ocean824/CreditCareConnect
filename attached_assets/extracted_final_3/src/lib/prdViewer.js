@@ -51,15 +51,25 @@ export function renderPRDViewer(container) {
 
   const tabs = document.querySelectorAll(".tab");
   const contentArea = document.getElementById("prdContent");
+  const allowedTabs = ['upload', 'ai', 'click2mail'];
+  
   tabs.forEach(tab => {
     tab.onclick = () => {
+      const tabName = tab.dataset.tab;
+      
+      // Validate tab name against allowed values
+      if (!allowedTabs.includes(tabName)) {
+        console.warn('Invalid tab selection:', tabName);
+        return;
+      }
+      
       tabs.forEach(t => t.style.background = "#f3f4f6");
       tab.style.background = "#e0e7ff";
       // Use range to safely replace content instead of innerHTML
       const range = document.createRange();
       range.selectNodeContents(contentArea);
       range.deleteContents();
-      const fragment = range.createContextualFragment(content[tab.dataset.tab]);
+      const fragment = range.createContextualFragment(content[tabName]);
       contentArea.appendChild(fragment);
     };
   });
