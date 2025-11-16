@@ -192,6 +192,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // File upload endpoint for credit reports
+  const creditReportUpload = multer({
+    dest: process.env.FILES_DIR || "./files",
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB limit
+    },
+    fileFilter: (req, file, cb) => {
+      const allowedMimes = ['application/pdf', 'image/jpeg', 'image/png'];
+      const allowedExts = ['.pdf', '.jpg', '.jpeg', '.png'];
+      
+      const ext = path.extname(file.originalname).toLowerCase();
+      const mimeValid = allowedMimes.includes(file.mimetype);
+      const extValid = allowedExts.includes(ext);
+      
+      if (mimeValid && extValid) {
+        cb(null, true);
+      } else {
+        cb(new Error('Invalid file type. Only PDF and image files are allowed.'));
+      }
+    }
+  });
+
+  app.post('/api/upload-file',
+    rateLimit({ windowMs: 60_000, max: 10, namespace: 'file-upload' }),
+    requireActiveSubscription,
+    creditReportUpload.single('file'),
+    async (req: any, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ message: "No file uploaded" });
+        }
+
+        // File is saved by multer, return the path
+        const fileUrl = `/files/${path.basename(req.file.path)}`;
+        
+        res.json({
+          fileName: req.file.originalname,
+          fileUrl,
+          fileSize: req.file.size,
+          mimeType: req.file.mimetype
+        });
+      } catch (error: any) {
+        console.error("File upload error:", error);
+        res.status(500).json({ message: "File upload failed" });
+      }
+    }
+  );
+
   // Credit Report Analysis
   app.post('/api/credit-reports/upload', 
     rateLimit({ windowMs: 60_000, max: 10, namespace: 'credit-upload' }),

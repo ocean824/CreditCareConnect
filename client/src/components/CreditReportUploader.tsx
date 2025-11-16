@@ -14,13 +14,27 @@ export default function CreditReportUploader() {
 
   const uploadMutation = useMutation({
     mutationFn: async ({ file, bureau }: { file: File; bureau: string }) => {
-      // In a real implementation, you'd upload to object storage first
-      // For now, we'll simulate the upload with a mock file URL
-      const mockFileUrl = `/uploads/${file.name}`;
+      // Step 1: Upload the file to the server
+      const formData = new FormData();
+      formData.append('file', file);
       
+      const uploadResponse = await fetch('/api/upload-file', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      
+      if (!uploadResponse.ok) {
+        const error = await uploadResponse.json();
+        throw new Error(error.message || 'File upload failed');
+      }
+      
+      const { fileUrl, fileName } = await uploadResponse.json();
+      
+      // Step 2: Create credit report analysis with the uploaded file
       return apiRequest("POST", "/api/credit-reports/upload", {
-        fileName: file.name,
-        fileUrl: mockFileUrl,
+        fileName,
+        fileUrl,
         bureau,
       });
     },
