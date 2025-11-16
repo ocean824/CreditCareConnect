@@ -4,9 +4,12 @@ import type { CreditReport, BureauName } from "../models/creditReport";
 import type { IssueFlag } from "../models/issues";
 import type { AiIssueExplanation, DisputeAngle } from "../ai/disputeLetterGenerator";
 
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY 
-});
+const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY;
+const openai = apiKey ? new OpenAI({ apiKey }) : null;
+
+if (!apiKey) {
+  console.warn('⚠️  OpenAI API key not configured - AI explanations will be unavailable');
+}
 
 export interface AnalysisResult {
   issues: IssueFlag[];
@@ -38,6 +41,12 @@ async function generateAiExplanations(
   report: CreditReport
 ): Promise<AiIssueExplanation[]> {
   if (issues.length === 0) return [];
+  
+  // Gracefully degrade if OpenAI is not configured
+  if (!openai) {
+    console.warn('⚠️  OpenAI not configured - skipping AI explanations');
+    return [];
+  }
 
   try {
     const prompt = `

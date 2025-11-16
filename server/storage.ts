@@ -7,6 +7,10 @@ import {
   chatConversations,
   notifications,
   cfpbComplaints,
+  analysisRuns,
+  issues,
+  aiIssueExplanations,
+  accountSummaries,
   type User,
   type UpsertUser,
   type InsertCreditReport,
@@ -21,6 +25,14 @@ import {
   type Notification,
   type InsertCfpbComplaint,
   type CfpbComplaint,
+  type InsertAnalysisRun,
+  type AnalysisRun,
+  type InsertIssue,
+  type Issue,
+  type InsertAiIssueExplanation,
+  type AiIssueExplanation,
+  type InsertAccountSummary,
+  type AccountSummary,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
@@ -70,6 +82,20 @@ export interface IStorage {
     monthlyRevenue: number;
     lettersSent: number;
   }>;
+  
+  // Advanced Analysis operations
+  createAnalysisRun(run: InsertAnalysisRun): Promise<AnalysisRun>;
+  getAnalysisRunsByReportId(creditReportId: string): Promise<AnalysisRun[]>;
+  updateAnalysisRunStatus(id: string, status: string, completedAt?: Date, issueCount?: number, aiIssueCount?: number): Promise<AnalysisRun>;
+  
+  createIssue(issue: InsertIssue): Promise<Issue>;
+  getIssuesByRunId(runId: string): Promise<Issue[]>;
+  
+  createAiIssueExplanation(explanation: InsertAiIssueExplanation): Promise<AiIssueExplanation>;
+  getAiIssueExplanationsByRunId(runId: string): Promise<AiIssueExplanation[]>;
+  
+  createAccountSummary(summary: InsertAccountSummary): Promise<AccountSummary>;
+  getAccountSummariesByRunId(runId: string): Promise<AccountSummary[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -350,6 +376,91 @@ export class DatabaseStorage implements IStorage {
       monthlyRevenue,
       lettersSent: sentLetters.length,
     };
+  }
+
+  // Advanced Analysis operations
+  async createAnalysisRun(run: InsertAnalysisRun): Promise<AnalysisRun> {
+    const [analysisRun] = await db
+      .insert(analysisRuns)
+      .values(run)
+      .returning();
+    return analysisRun;
+  }
+
+  async getAnalysisRunsByReportId(creditReportId: string): Promise<AnalysisRun[]> {
+    return await db
+      .select()
+      .from(analysisRuns)
+      .where(eq(analysisRuns.creditReportId, creditReportId))
+      .orderBy(desc(analysisRuns.startedAt));
+  }
+
+  async updateAnalysisRunStatus(
+    id: string, 
+    status: string, 
+    completedAt?: Date, 
+    issueCount?: number, 
+    aiIssueCount?: number
+  ): Promise<AnalysisRun> {
+    const updateData: any = { status };
+    if (completedAt) updateData.completedAt = completedAt;
+    if (issueCount !== undefined) updateData.issueCount = issueCount;
+    if (aiIssueCount !== undefined) updateData.aiIssueCount = aiIssueCount;
+
+    const [analysisRun] = await db
+      .update(analysisRuns)
+      .set(updateData)
+      .where(eq(analysisRuns.id, id))
+      .returning();
+    return analysisRun;
+  }
+
+  async createIssue(issue: InsertIssue): Promise<Issue> {
+    const [newIssue] = await db
+      .insert(issues)
+      .values(issue)
+      .returning();
+    return newIssue;
+  }
+
+  async getIssuesByRunId(runId: string): Promise<Issue[]> {
+    return await db
+      .select()
+      .from(issues)
+      .where(eq(issues.runId, runId))
+      .orderBy(desc(issues.createdAt));
+  }
+
+  async createAiIssueExplanation(explanation: InsertAiIssueExplanation): Promise<AiIssueExplanation> {
+    const [newExplanation] = await db
+      .insert(aiIssueExplanations)
+      .values(explanation)
+      .returning();
+    return newExplanation;
+  }
+
+  async getAiIssueExplanationsByRunId(runId: string): Promise<AiIssueExplanation[]> {
+    return await db
+      .select()
+      .from(aiIssueExplanations)
+      .where(eq(aiIssueExplanations.runId, runId))
+      .orderBy(desc(aiIssueExplanations.createdAt));
+  }
+
+  async createAccountSummary(summary: InsertAccountSummary): Promise<AccountSummary> {
+    const [newSummary] = await db
+      .insert(accountSummaries)
+      .values(summary)
+      .returning();
+    return newSummary;
+  }
+
+  async getAccountSummariesByRunId(runId: string): Promise<AccountSummary[]> {
+    return await db
+      .select()
+      .from(accountSummaries)
+      .where(eq(accountSummaries.runId, runId))
+      .orderBy(desc(accountSummaries.createdAt));
   }
 }
 

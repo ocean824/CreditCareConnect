@@ -35,6 +35,9 @@ import {
 } from "./services/freezeAgent";
 import adminAuthRouter, { getAdminSession } from "./adminAuth";
 import userAuthRouter, { requireAuth, requireActiveSubscription, getUserSession } from "./userAuth";
+import { analyzeWithRulesEngine } from "./services/advancedCreditAnalysis";
+import { createSampleCreditReport } from "./utils/creditReportConverter";
+import { nanoid } from "nanoid";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // User session middleware (for all routes)
@@ -208,43 +211,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const creditReport = await storage.createCreditReport(validatedData);
 
-      // Start analysis in background (simplified for this implementation)
+      // Start advanced analysis in background using rules engine + AI
       setTimeout(async () => {
+        let analysisRun;
         try {
-          // In real implementation, you'd extract text from PDF first
-          const mockReportText = "Sample credit report text for analysis...";
-          const analysis = {
-            violations: [
-              {
-                accountName: "Test Account",
-                accountNumber: "1234567890",
-                bureau: bureau || "EQUIFAX",
-                violationType: "INACCURATE_INFORMATION",
-                description: "Account showing incorrect balance",
-                statute: "FCRA Section 611",
-                severity: "HIGH"
-              },
-              {
-                accountName: "Credit Card XYZ",
-                accountNumber: "9876543210",
-                bureau: bureau || "EQUIFAX",
-                violationType: "OBSOLETE_INFORMATION",
-                description: "Account older than 7 years still being reported",
-                statute: "FCRA Section 605",
-                severity: "MEDIUM"
-              }
-            ]
+          // Create analysis run record
+          analysisRun = await storage.createAnalysisRun({
+            creditReportId: creditReport.id,
+            engineVersion: "1.0.0",
+            aiModel: "gpt-4o",
+            status: "running",
+          });
+
+          // For MVP, use sample credit report with realistic violations
+          // In production, you would:
+          // 1. Extract text from PDF using: const reportText = await ocrPdfOrImage(filePath);
+          // 2. Parse text into CreditReport object using AI or structured parser
+          // 3. Pass parsed report to analyzeWithRulesEngine
+          
+          const sampleReport = createSampleCreditReport();
+          
+          // Run advanced analysis (rules engine + AI explanations)
+          const analysisResult = await analyzeWithRulesEngine(sampleReport);
+          
+          // Save issues to database
+          for (const issue of analysisResult.issues) {
+            await storage.createIssue({
+              runId: analysisRun.id,
+              issueId: issue.id,
+              ruleId: issue.ruleId,
+              family: issue.family,
+              category: issue.category,
+              severity: issue.severity,
+              affectedEntityType: issue.affectedEntityType,
+              affectedBureaus: issue.affectedBureaus,
+              affectedIds: issue.affectedIds,
+              statutes: issue.statutes,
+              descriptionMachine: issue.descriptionMachine,
+              explanationKey: issue.explanationKey,
+              details: issue.details as any,
+            });
+          }
+          
+          // Save AI explanations to database
+          for (const explanation of analysisResult.aiExplanations) {
+            await storage.createAiIssueExplanation({
+              runId: analysisRun.id,
+              issueId: explanation.issueId,
+              accountLabel: explanation.accountLabel,
+              humanSummary: explanation.humanSummary,
+              statutes: explanation.statutes,
+              disputeAngle: explanation.disputeAngle,
+              recommendedAction: explanation.recommendedAction,
+              priority: explanation.priority,
+              rawAiPayload: explanation,
+            });
+          }
+          
+          // Update analysis run status
+          await storage.updateAnalysisRunStatus(
+            analysisRun.id,
+            "completed",
+            new Date(),
+            analysisResult.issues.length,
+            analysisResult.aiExplanations.length
+          );
+
+          // Update credit report with analysis results (for backwards compatibility)
+          const legacyAnalysis = {
+            violations: analysisResult.issues.slice(0, 10).map(issue => ({
+              accountName: (issue.details as any).accountName || "Account",
+              accountNumber: issue.affectedIds[0] || "N/A",
+              bureau: issue.affectedBureaus?.[0] || bureau || "EQUIFAX",
+              violationType: issue.category,
+              description: issue.descriptionMachine,
+              statute: issue.statutes.join(", "),
+              severity: issue.severity,
+            })),
+            summary: analysisResult.summary,
           };
           
-          // Update credit report with analysis results
           await storage.updateCreditReportAnalysis(
             creditReport.id, 
-            analysis, 
+            legacyAnalysis, 
             "COMPLETED"
           );
 
-          // Create violation records
-          for (const violation of analysis.violations) {
+          // Create legacy violation records (for backwards compatibility)
+          for (const violation of legacyAnalysis.violations) {
             await storage.createViolation({
               creditReportId: creditReport.id,
               accountName: violation.accountName,
@@ -258,12 +312,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
           
-          console.log(`✓ Analysis completed for report ${creditReport.id}: ${analysis.violations.length} violations created`);
+          console.log(`✅ Advanced analysis completed for report ${creditReport.id}:`);
+          console.log(`   📊 ${analysisResult.issues.length} issues detected`);
+          console.log(`   🤖 ${analysisResult.aiExplanations.length} AI explanations generated`);
+          console.log(`   💾 Saved to analysis run ${analysisRun.id}`);
         } catch (error) {
-          console.error("Error in background analysis:", error);
+          console.error("❌ Error in advanced analysis:", error);
+          if (analysisRun) {
+            await storage.updateAnalysisRunStatus(analysisRun.id, "failed");
+          }
           await storage.updateCreditReportAnalysis(creditReport.id, null, "FAILED");
         }
-      }, 1500);
+      }, 2000);
 
       res.json(creditReport);
     } catch (error) {
