@@ -1,0 +1,154 @@
+Perfect — you’re now describing a dual-mode AI-powered credit repair SaaS with:
+
+DIY Mode (Self-Service Credit Repair)
+
+Done-For-You Mode (Full Automation: Letters + Mailing + CRM Sync)
+
+Plus:
+
+🔄 Switchable tiers
+
+💰 Upgrade fee enforcement
+
+🤖 Embedded AI Agent
+
+🎥 Video walkthroughs per plan (dynamic)
+
+✅ SYSTEM OVERVIEW: Dual Mode + AI Support
+Feature	DIY Plan ($0–$X)	Done-For-You Plan ($149.99/mo)
+Upload credit reports	✅	✅
+AI-generated dispute letters	✅	✅
+Download/print letters	✅	✅
+Auto-mail via Click2Mail	❌	✅
+CRC CRM sync	❌	✅
+Twilio/Gmail reminders	❌	✅
+Dashboard access	✅	✅
+Embedded AI assistant	✅ (limited)	✅ (full)
+Video walkthrough	🎥 DIY version	🎥 Full automation version
+Support chat	🟡 AI only	🟢 AI + human fallback
+Upgrade/downgrade anytime	✅ (with fee)	✅
+🔨 WHAT TO BUILD IN REPLIT (MODULE BY MODULE)
+🔐 1. Plan Selection (First Login)
+
+✅ Prompt user to choose:
+
+Would you like to:
+
+Do It Yourself (free tools, no mailing)
+
+Let the App Do It All (automation + mailing + CRM)
+→ “You can switch anytime for $149.99/month.”
+
+📄 /select-plan route (FastAPI)
+@app.get("/select-plan", response_class=HTMLResponse)
+def plan_selector(request: Request):
+    return templates.TemplateResponse("select_plan.html", {"request": request})
+
+@app.post("/select-plan")
+def save_plan(request: Request, plan: str = Form(...), user_email: str = Cookie(None)):
+    if user_email:
+        user_data = load_user(user_email)
+        user_data["plan"] = plan
+        save_user(user_email, user_data)
+        return RedirectResponse("/dashboard", status_code=302)
+
+
+📁 Store in users.json:
+
+{
+  "john@example.com": {
+    "password": "secret123",
+    "plan": "diy"
+  }
+}
+
+💰 2. Upgrade Flow (Optional Payment Flow or Just Toggle)
+
+📌 If user switches from diy → pro, enforce $149.99 fee.
+
+Track upgrade date + enforce charge using Stripe or manual confirmation.
+
+🧠 3. Embedded AI Assistant (per plan)
+
+Use GPT-4 Turbo API or ChatGPT Assistant API:
+
+🧩 Load plan context into system prompt
+
+🧠 Adjust capabilities:
+
+DIY = “explain how to mail your letters”
+
+Pro = “I already mailed your letters, here’s the ETA + next steps”
+
+🔧 Example System Prompt Template
+def get_agent_prompt(plan):
+    if plan == "diy":
+        return """You are a credit repair assistant for DIY users.
+You help them understand their credit report, generate dispute letters, and explain how to print and mail letters themselves.
+Do NOT mention CRM, Click2Mail, or automation."""
+    else:
+        return """You are an AI agent managing automated credit repair.
+You notify users of mailing status, dispute cycles, and CRM sync. You handle everything, including Click2Mail, CRC, and timeline updates."""
+
+🎥 4. Dynamic Video Walkthroughs
+
+📁 Store two versions of onboarding walkthroughs:
+
+/static/videos/onboarding_diy.mp4
+
+/static/videos/onboarding_pro.mp4
+
+📄 In /dashboard, dynamically embed:
+
+<video width="600" controls>
+  <source src="/static/videos/onboarding_{{ plan }}.mp4" type="video/mp4">
+</video>
+
+🧠 5. AI Chat Widget (Plan-aware)
+
+Use Replit’s Flask-compatible frontend or JS widget like:
+
+<script>
+  const userPlan = "{{ plan }}";
+  const welcome = userPlan === "pro"
+    ? "Welcome to your automated credit repair assistant!"
+    : "Need help sending your letters or interpreting your report?";
+  document.getElementById("chatbot-welcome").innerText = welcome;
+</script>
+
+
+Backend calls GPT-4 with plan-adjusted context.
+
+🗃️ 6. Client Folder Routing (by Plan)
+def route_letter_output(user_email, plan):
+    base = f"clients/{user_email.replace('@', '_')}"
+    if plan == "pro":
+        send_to_click2mail(base)
+    else:
+        # Only prepare the PDF for download
+        notify_diy_instructions(base)
+
+🧠 Example AI Agent Use (DIY Mode)
+
+User: "What do I do with this Equifax dispute letter?"
+
+AI Agent (DIY mode):
+“Great question! Now that your Equifax letter is generated, print it on white 8.5x11 paper, sign it, and mail it via Certified Mail to:
+Equifax PO Box 740241, Atlanta, GA 30374.”
+
+🧠 Example AI Agent Use (Pro Mode)
+
+User: "Did you already send my Equifax letter?"
+
+AI Agent (Pro mode):
+“Yes — your Equifax dispute was mailed via Click2Mail on Sept 21, 2025. Expect a response in 30–45 days. Your CRM record has been updated.”
+
+✅ Summary of System Behavior
+Action	DIY User	Pro User
+Uploads report	✅	✅
+Gets AI support	✅ (limited)	✅ (full)
+Gets video walkthrough	🎥 DIY	🎥 Full Automation
+Letter generated	✅	✅
+Mailing	❌ (manual)	✅ (Click2Mail)
+CRM sync	❌	✅
+Can upgrade/downgrade	✅	✅ (fee applies on upgrade)

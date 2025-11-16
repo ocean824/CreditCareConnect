@@ -1,0 +1,200 @@
+Excellent — since you're building your app on Replit, I’ll format everything to run cleanly inside Replit's free environment, including:
+
+✅ main.py with FastAPI app
+
+✅ requirements.txt for Replit's package manager
+
+✅ Folder structure compatible with Replit’s file tree
+
+✅ Minimal CLI use (since Replit autoserves FastAPI apps)
+
+✅ .env usage for keys (Click2Mail, CRC, Gmail)
+
+✅ Static file return for PDF previews or downloads
+
+✅ Direct file uploads via FastAPI UI (for report ingestion)
+
+✅ Here's Your Replit-Ready Starter Structure
+/replit_app/
+├── main.py
+├── metro2_rules.py
+├── letter_templates/
+│   └── bureau_dispute.jinja2
+│   └── furnisher_dispute.jinja2
+├── pdf_utils.py
+├── click2mail_api.py
+├── .env
+├── requirements.txt
+└── README.md
+
+✅ Step-by-Step: What You’ll Get
+1. requirements.txt
+fastapi
+uvicorn
+jinja2
+python-multipart
+weasyprint
+python-dotenv
+requests
+
+
+This lets Replit install all dependencies correctly on first run.
+
+2. .env (DO NOT COMMIT THIS)
+CLICK2MAIL_USERNAME=your_click2mail_username
+CLICK2MAIL_PASSWORD=your_click2mail_password
+CRC_API_KEY=your_crc_key
+GMAIL_EMAIL=youremail@gmail.com
+GMAIL_APP_PASSWORD=your_gmail_app_pw
+
+
+Use python-dotenv to load these into your app.
+
+3. main.py – FastAPI App Entry Point
+from fastapi import FastAPI, UploadFile, Form
+from metro2_rules import analyze_report
+from pdf_utils import generate_letters
+from click2mail_api import send_letter_via_click2mail
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+app = FastAPI()
+
+@app.get("/")
+def home():
+    return {"message": "Credit Repair Bot is Live on Replit"}
+
+@app.post("/analyze-report")
+async def analyze_credit(file: UploadFile):
+    content = await file.read()
+    findings = analyze_report(content)
+    letters = generate_letters(findings)
+    
+    # Send via Click2Mail (example: first letter)
+    if letters:
+        pdf_path = letters[0]["pdf_path"]
+        recipient = letters[0]["recipient"]
+        send_letter_via_click2mail(pdf_path, recipient)
+
+    return {
+        "status": "success",
+        "violations": findings,
+        "letters": [l["pdf_path"] for l in letters]
+    }
+
+4. metro2_rules.py – Rule Engine (simplified)
+def analyze_report(file_bytes):
+    # Stub: convert PDF to text or parse JSON
+    # Apply Metro2 logic
+    # Return list of violations
+    return [
+        {
+            "bureau": "EQF",
+            "account": "CAP1 ****1234",
+            "issue": "Missing DOFD",
+            "statutes": ["FCRA §1681e(b)", "§1681i"]
+        }
+    ]
+
+5. pdf_utils.py – Jinja2 + WeasyPrint
+from jinja2 import Environment, FileSystemLoader
+from weasyprint import HTML
+import os
+from datetime import date
+
+env = Environment(loader=FileSystemLoader("letter_templates"))
+
+def generate_letters(findings):
+    letters = []
+    for finding in findings:
+        template = env.get_template("bureau_dispute.jinja2")
+        html = template.render(
+            name="John Doe",
+            ssn_last4="1234",
+            address="123 Main St, FL",
+            dob="01/01/1990",
+            bureau=finding["bureau"],
+            account=finding["account"],
+            issue=finding["issue"],
+            statutes=", ".join(finding["statutes"]),
+            today=str(date.today())
+        )
+        pdf_path = f"output/{finding['bureau']}_dispute_{finding['account'].replace(' ', '_')}.pdf"
+        os.makedirs("output", exist_ok=True)
+        HTML(string=html).write_pdf(pdf_path)
+        letters.append({"pdf_path": pdf_path, "recipient": {"name": "Equifax", "address1": "PO Box 740241", "city": "Atlanta", "state": "GA", "zip": "30374"}})
+    return letters
+
+6. letter_templates/bureau_dispute.jinja2
+{{ name }}
+{{ address }}
+DOB: {{ dob }} | SSN: XXX-XX-{{ ssn_last4 }}
+Date: {{ today }}
+
+To: {{ bureau }}
+
+RE: Request for Reinvestigation under FCRA
+
+Dear {{ bureau }},
+
+I am disputing the accuracy of the following tradeline:
+
+Account: {{ account }}
+Issue: {{ issue }}
+Statutory Basis: {{ statutes }}
+
+Please reinvestigate and correct or delete this item. I’ve included supporting evidence.
+
+Sincerely,  
+{{ name }}
+
+7. click2mail_api.py
+import requests
+import base64
+import os
+
+def send_letter_via_click2mail(pdf_path, recipient):
+    username = os.getenv("CLICK2MAIL_USERNAME")
+    password = os.getenv("CLICK2MAIL_PASSWORD")
+    auth = base64.b64encode(f"{username}:{password}".encode()).decode()
+    
+    url = "https://rest.click2mail.com/molpro/1.0/job"
+    headers = {
+        "Authorization": f"Basic {auth}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+
+    data = {
+        "documentClass": "Letter 8.5 x 11",
+        "layout": "Address on First Page",
+        "productionTime": "Next Day",
+        "envelope": "Double Window",
+        "color": "Black and White",
+        "paperType": "White 24#",
+        "printOption": "Printing One side",
+        "mailClass": "First Class",
+        "recipients": f"{recipient['name']}\n{recipient['address1']}\n{recipient['city']}, {recipient['state']} {recipient['zip']}"
+    }
+
+    with open(pdf_path, "rb") as f:
+        files = {
+            "file": (os.path.basename(pdf_path), f, "application/pdf")
+        }
+        response = requests.post(url, headers=headers, data=data, files=files)
+        return response.status_code, response.text
+
+🧪 How to Test on Replit
+
+Create a new Replit project → Python + FastAPI
+
+Paste above files accordingly
+
+Add your .env file
+
+Hit the "Run" button (Replit serves /docs for Swagger UI)
+
+Upload a test file via /analyze-report endpoint
+
+Click2Mail will send the first letter automatically

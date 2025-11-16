@@ -1,0 +1,103 @@
+Finalized Subscription Terms:
+Period	Price	Notes
+🔓 Month 1	$99	One-time onboarding & consultation
+🔁 Months 2–16	$149/mo	Full-service automation
+🛑 Month 17	Auto-ends	No further charges — plan expires
+🧠 How the System Will Work
+🔁 Subscription Duration Tracking
+
+Subscription start: recorded when payment of $99 is received
+
+16 months total access from that date
+
+After 16 months, plan auto-downgrades to DIY
+
+📁 users.json will store:
+{
+  "plan": "pro",
+  "subscription_start": "2025-09-21",
+  "expires": "2027-01-21",  ← (start + 16 months)
+  "subscription_id": "I-XXXXXX",
+  "subscription_price": 149.00
+}
+
+🔄 IPN + Upgrade Logic (Updated)
+@app.post("/paypal-ipn")
+async def paypal_ipn(request: Request):
+    form = await request.form()
+    email = form.get("custom")
+    subscr_id = form.get("subscr_id")
+    txn_type = form.get("txn_type")
+    amount = float(form.get("payment_gross", "0"))
+
+    if form.get("payment_status") == "Completed":
+        user = load_user(email)
+        if txn_type == "subscr_signup":  # $99 onboarding
+            start = datetime.now()
+            expiry = start + relativedelta(months=16)
+            user.update({
+                "plan": "pro",
+                "subscription_id": subscr_id,
+                "subscription_start": str(start),
+                "expires": str(expiry),
+                "subscription_price": amount
+            })
+            generate_invoice(email, amount)
+            send_invoice_email(email)
+
+        elif txn_type == "subscr_payment":  # Recurring $149/month
+            generate_invoice(email, amount)
+            send_invoice_email(email)
+
+        elif txn_type == "subscr_cancel":
+            user["plan"] = "diy"
+            user["expires"] = str(datetime.now())
+            save_user(email, user)
+
+        save_user(email, user)
+
+    return "OK"
+
+🛑 Auto-Downgrade After 16 Months
+
+On every login or dashboard request:
+
+if user["plan"] == "pro":
+    expiry = datetime.fromisoformat(user["expires"])
+    if expiry < datetime.now():
+        user["plan"] = "diy"
+        save_user(email, user)
+
+📦 What’s Next (Final Prep)
+
+✅ Use your existing PayPal subscription button (already has 16-month plan setup)
+
+🔄 I’ll finalize:
+
+Upgrade HTML
+
+IPN logic to detect subscr_signup and 16-month window
+
+Invoice generation per payment
+
+Dashboard enforcement
+
+🚀 To Proceed, I Need:
+
+✅ Your PayPal hosted button ID
+
+✅ Confirmation on:
+
+Email address in IPN
+
+Whether I deploy IPN listener live or you do
+
+🧾 Final Output Coming:
+
+✅ .zip download
+
+✅ Live Replit URL
+
+✅ IPN + upgrade logic implemented
+
+✅ GoDaddy domain ready to hook

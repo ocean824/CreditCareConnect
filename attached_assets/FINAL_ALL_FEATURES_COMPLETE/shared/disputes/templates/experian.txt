@@ -1,0 +1,11 @@
+Dear Experian,
+
+I am writing to formally dispute the following item(s) on my credit report. Please investigate the following according to the Fair Credit Reporting Act (FCRA).
+
+Creditor: {{creditor}}
+Error Type: {{error}}
+
+Under the FCRA, I request these items be corrected or removed if found to be inaccurate.
+
+Sincerely,
+[Your Name]

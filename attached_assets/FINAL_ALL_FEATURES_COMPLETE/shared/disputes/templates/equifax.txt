@@ -1,0 +1,11 @@
+Hello Equifax,
+
+This dispute letter is submitted to request a review of incorrect or outdated information listed under my credit report.
+
+Creditor in Question: {{creditor}}
+Error Description: {{error}}
+
+Please respond within 30 days as required by the Fair Credit Reporting Act (FCRA).
+
+Thank you,
+[Your Name]

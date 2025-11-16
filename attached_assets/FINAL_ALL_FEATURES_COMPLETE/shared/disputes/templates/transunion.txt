@@ -1,0 +1,11 @@
+To TransUnion,
+
+This letter serves as a formal dispute regarding incorrect information in my credit file. Please review the following details and respond accordingly.
+
+Creditor: {{creditor}}
+Issue: {{error}}
+
+According to FDCPA and FCRA, I have the right to accurate reporting. Please correct these errors promptly.
+
+Regards,
+[Your Name]
