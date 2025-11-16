@@ -61,7 +61,7 @@ export async function analyzeCreditReport(reportText: string, bureau?: string): 
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4o",  // Using GPT-4 Turbo (latest stable model)
       messages: [
         {
           role: "system",
@@ -136,7 +136,7 @@ export async function generateDisputeLetter(
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4o",  // Using GPT-4 Turbo (latest stable model)
       messages: [
         {
           role: "system",
@@ -184,7 +184,7 @@ export async function chatWithAI(
     ];
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4o",  // Using GPT-4 Turbo (latest stable model)
       messages: messages as any,
     });
 
@@ -222,7 +222,7 @@ export async function generateCFPBComplaint(
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4o",  // Using GPT-4 Turbo (latest stable model)
       messages: [
         {
           role: "system",

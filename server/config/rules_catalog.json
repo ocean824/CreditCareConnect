@@ -1,0 +1,255 @@
+{
+  "rules": [
+    {
+      "rule_id": "XB_001_CROSS_BUREAU_BALANCE_MISMATCH_MODERATE",
+      "family": "CROSS_BUREAU",
+      "name": "Moderate Cross-Bureau Balance Mismatch",
+      "category": "CROSS_BUREAU_BALANCE_INCONSISTENT",
+      "description": "Balances for the same clustered tradeline differ beyond moderate tolerance thresholds but not severe.",
+      "statutes": [
+        "FCRA_607b",
+        "FCRA_623"
+      ],
+      "defaultSeverity": "MEDIUM",
+      "inputs": [
+        "bureaus[].tradelines[].creditorName",
+        "bureaus[].tradelines[].accountNumberMasked",
+        "bureaus[].tradelines[].openedDate",
+        "bureaus[].tradelines[].balance"
+      ],
+      "logicSummary": "Cluster tradelines; if max-min balance difference exceeds moderate thresholds but is below severe thresholds, flag.",
+      "explanationKey": "XB_BALANCE_MISMATCH_MODERATE",
+      "implemented": true
+    },
+    {
+      "rule_id": "XB_002_CROSS_BUREAU_BALANCE_MISMATCH_SEVERE",
+      "family": "CROSS_BUREAU",
+      "name": "Severe Cross-Bureau Balance Mismatch",
+      "category": "CROSS_BUREAU_BALANCE_INCONSISTENT",
+      "description": "Balances for the same clustered tradeline differ beyond severe tolerance thresholds.",
+      "statutes": [
+        "FCRA_607b",
+        "FCRA_623"
+      ],
+      "defaultSeverity": "HIGH",
+      "inputs": [
+        "bureaus[].tradelines[].creditorName",
+        "bureaus[].tradelines[].accountNumberMasked",
+        "bureaus[].tradelines[].openedDate",
+        "bureaus[].tradelines[].balance"
+      ],
+      "logicSummary": "Cluster tradelines; if max-min balance difference exceeds severe thresholds, flag.",
+      "explanationKey": "XB_BALANCE_MISMATCH_SEVERE",
+      "implemented": true
+    },
+    {
+      "rule_id": "TL_INT_003_PAST_DUE_ON_ZERO_BALANCE",
+      "family": "TRADLINE_INTERNAL",
+      "name": "Past-Due on Zero-Balance Tradeline",
+      "category": "PASTDUE_ON_ZERO_BALANCE",
+      "description": "Tradeline shows a past-due amount with a zero balance.",
+      "statutes": [
+        "FCRA_623",
+        "FCRA_607b",
+        "FDCPA_807"
+      ],
+      "defaultSeverity": "HIGH",
+      "inputs": [
+        "bureaus[].tradelines[].balance",
+        "bureaus[].tradelines[].pastDueAmount",
+        "bureaus[].tradelines[].status"
+      ],
+      "logicSummary": "If balance is 0 but pastDueAmount > 0, flag.",
+      "explanationKey": "TL_PASTDUE_ZERO_BALANCE",
+      "implemented": true
+    },
+    {
+      "rule_id": "TL_INT_004_HIGH_CREDIT_LOWER_THAN_BALANCE",
+      "family": "TRADLINE_INTERNAL",
+      "name": "Balance Exceeds High Credit Limit",
+      "category": "BALANCE_EXCEEDS_HIGH_CREDIT",
+      "description": "Tradeline balance exceeds the reported high credit limit.",
+      "statutes": [
+        "FCRA_607b"
+      ],
+      "defaultSeverity": "MEDIUM",
+      "inputs": [
+        "bureaus[].tradelines[].balance",
+        "bureaus[].tradelines[].highCreditLimit"
+      ],
+      "logicSummary": "If balance > highCreditLimit, flag.",
+      "explanationKey": "TL_BALANCE_GT_HIGH_CREDIT",
+      "implemented": true
+    },
+    {
+      "rule_id": "ST_001_TRANSFERRED_WITH_NONZERO_BALANCE",
+      "family": "STATUS",
+      "name": "Transferred or Sold with Non-Zero Balance",
+      "category": "SOLD_ACCOUNT_NON_ZERO_BALANCE",
+      "description": "Tradeline is transferred/sold but still shows a non-zero balance.",
+      "statutes": [
+        "FCRA_607b",
+        "FCRA_623",
+        "METRO2"
+      ],
+      "defaultSeverity": "HIGH",
+      "inputs": [
+        "bureaus[].tradelines[].status",
+        "bureaus[].tradelines[].balance"
+      ],
+      "logicSummary": "If status is Transferred/Sold and balance > 0, flag.",
+      "explanationKey": "ST_TRANSFERRED_NONZERO_BAL",
+      "implemented": true
+    },
+    {
+      "rule_id": "ST_002_TRANSFERRED_BUT_PAYMENT_HISTORY_CONTINUES",
+      "family": "STATUS",
+      "name": "Transferred or Sold but Payment History Continues",
+      "category": "LATE_AFTER_TRANSFER",
+      "description": "Tradeline is transferred/sold but continues to show payment history afterward.",
+      "statutes": [
+        "FCRA_607b",
+        "METRO2"
+      ],
+      "defaultSeverity": "MEDIUM",
+      "inputs": [
+        "bureaus[].tradelines[].status",
+        "bureaus[].tradelines[].paymentHistory"
+      ],
+      "logicSummary": "If status is Transferred/Sold and paymentHistory exists, flag.",
+      "explanationKey": "ST_TRANSFERRED_HISTORY_CONTINUES",
+      "implemented": true
+    },
+    {
+      "rule_id": "ST_004_PAID_OR_CLOSED_WITH_PAST_DUE",
+      "family": "STATUS",
+      "name": "Closed or Paid Tradeline with Past-Due Amount",
+      "category": "PASTDUE_ON_CLOSED_OR_PAID_ACCOUNT",
+      "description": "Tradeline is closed/paid but still shows a past-due amount.",
+      "statutes": [
+        "FCRA_623",
+        "FCRA_607b",
+        "FDCPA_807"
+      ],
+      "defaultSeverity": "HIGH",
+      "inputs": [
+        "bureaus[].tradelines[].status",
+        "bureaus[].tradelines[].pastDueAmount"
+      ],
+      "logicSummary": "If status is Closed/Paid and pastDueAmount > 0, flag.",
+      "explanationKey": "ST_CLOSED_PAID_BUT_PASTDUE",
+      "implemented": true
+    },
+    {
+      "rule_id": "ST_007_STATUS_CONFLICTS_WITH_PAYMENT_HISTORY",
+      "family": "STATUS",
+      "name": "Status Conflicts with Payment History",
+      "category": "STATUS_HISTORY_CONFLICT",
+      "description": "Status suggests good standing but payment history shows delinquencies.",
+      "statutes": [
+        "FCRA_607b"
+      ],
+      "defaultSeverity": "MEDIUM",
+      "inputs": [
+        "bureaus[].tradelines[].status",
+        "bureaus[].tradelines[].paymentHistory"
+      ],
+      "logicSummary": "If status is Open/good but paymentHistory has late/CO codes, flag.",
+      "explanationKey": "ST_STATUS_HISTORY_CONFLICT",
+      "implemented": true
+    },
+    {
+      "rule_id": "TM_001_DEROG_OLDER_THAN_7Y_NON_BK",
+      "family": "TIMELINE",
+      "name": "Non-Bankruptcy Derogatory Older than 7 Years",
+      "category": "OBSOLETE_DEROGATORY",
+      "description": "Non-BK derogatory tradeline/collection appears older than 7-year obsolescence window.",
+      "statutes": [
+        "FCRA_605"
+      ],
+      "defaultSeverity": "HIGH",
+      "inputs": [
+        "bureaus[].tradelines[].dateOfFirstDelinquency",
+        "bureaus[].collections[].dateOfFirstDelinquency"
+      ],
+      "logicSummary": "If DOFD -> today > 7 years + buffer, flag as obsolete derogatory.",
+      "explanationKey": "TM_OBSOLETE_DEROG",
+      "implemented": true
+    },
+    {
+      "rule_id": "TM_002_BK_OLDER_THAN_10Y",
+      "family": "TIMELINE",
+      "name": "Bankruptcy Older than 10 Years",
+      "category": "OBSOLETE_BANKRUPTCY",
+      "description": "Bankruptcy public record appears older than 10-year window.",
+      "statutes": [
+        "FCRA_605"
+      ],
+      "defaultSeverity": "HIGH",
+      "inputs": [
+        "bureaus[].publicRecords[].type",
+        "bureaus[].publicRecords[].filedDate"
+      ],
+      "logicSummary": "If BK filedDate -> today > 10 years + buffer, flag as obsolete bankruptcy.",
+      "explanationKey": "TM_OBSOLETE_BK",
+      "implemented": true
+    },
+    {
+      "rule_id": "COL_001_MULTIPLE_OPEN_COLLECTIONS_SAME_DEBT",
+      "family": "COLLECTIONS",
+      "name": "Multiple Collections for Same Debt",
+      "category": "MULTIPLE_ACTIVE_COLLECTIONS",
+      "description": "More than one collection appears to represent the same underlying debt.",
+      "statutes": [
+        "FCRA_607b",
+        "FDCPA_807"
+      ],
+      "defaultSeverity": "HIGH",
+      "inputs": [
+        "bureaus[].collections[].collectorName",
+        "bureaus[].collections[].originalCreditorName",
+        "bureaus[].collections[].balance"
+      ],
+      "logicSummary": "Group by collectorName + originalCreditorName; if more than one entry, flag.",
+      "explanationKey": "COL_MULTIPLE_COLLECTIONS_SAME_DEBT",
+      "implemented": true
+    },
+    {
+      "rule_id": "COL_005_ZERO_BALANCE_COLLECTION_OPEN_STATUS",
+      "family": "COLLECTIONS",
+      "name": "Zero-Balance Collection Still Open",
+      "category": "ZERO_BALANCE_COLLECTION_OPEN_STATUS",
+      "description": "Collection has zero balance but is still reported as open.",
+      "statutes": [
+        "FCRA_623",
+        "FDCPA_807"
+      ],
+      "defaultSeverity": "MEDIUM",
+      "inputs": [
+        "bureaus[].collections[].balance",
+        "bureaus[].collections[].status"
+      ],
+      "logicSummary": "If balance = 0 and status = Open, flag.",
+      "explanationKey": "COL_ZERO_BAL_OPEN",
+      "implemented": true
+    },
+    {
+      "rule_id": "ID_006_PUBLIC_RECORD_IN_DIFFERENT_STATE_WITHOUT_ADDRESS_HISTORY",
+      "family": "IDENTITY",
+      "name": "Public Record in State Not in Address History",
+      "category": "PUBLIC_RECORD_OUT_OF_STATE",
+      "description": "Public record is in a state not present in consumer's address history.",
+      "statutes": [
+        "FCRA_607b"
+      ],
+      "defaultSeverity": "MEDIUM",
+      "inputs": [
+        "consumer.addresses[].state",
+        "bureaus[].publicRecords[].courtName"
+      ],
+      "logicSummary": "Compare courtName to consumer states; if no match, flag.",
+      "explanationKey": "ID_PUBLIC_RECORD_OUT_OF_STATE",
+      "implemented": true
+    }
+  ]
+}

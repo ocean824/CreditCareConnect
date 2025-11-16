@@ -206,6 +206,96 @@ export const insertCfpbComplaintSchema = createInsertSchema(cfpbComplaints).omit
 export type InsertCfpbComplaint = z.infer<typeof insertCfpbComplaintSchema>;
 export type CfpbComplaint = typeof cfpbComplaints.$inferSelect;
 
+// --- ADVANCED RULES ENGINE TABLES ---
+
+// Analysis runs tracking
+export const analysisRuns = pgTable("analysis_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  creditReportId: varchar("credit_report_id").notNull().references(() => creditReports.id),
+  engineVersion: varchar("engine_version").notNull(),
+  aiModel: varchar("ai_model").notNull(),
+  status: varchar("status").default("completed"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  issueCount: integer("issue_count").default(0),
+  aiIssueCount: integer("ai_issue_count").default(0),
+  notes: text("notes"),
+});
+
+// Issues detected by rules engine
+export const issues = pgTable("issues", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  runId: varchar("run_id").notNull().references(() => analysisRuns.id),
+  issueId: varchar("issue_id").notNull(),
+  ruleId: varchar("rule_id").notNull(),
+  family: varchar("family").notNull(),
+  category: varchar("category").notNull(),
+  severity: varchar("severity").notNull(),
+  affectedEntityType: varchar("affected_entity_type").notNull(),
+  affectedBureaus: text("affected_bureaus").array(),
+  affectedIds: jsonb("affected_ids"),
+  statutes: text("statutes").array(),
+  descriptionMachine: text("description_machine").notNull(),
+  explanationKey: varchar("explanation_key").notNull(),
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// AI-generated explanations for issues
+export const aiIssueExplanations = pgTable("ai_issue_explanations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  runId: varchar("run_id").notNull().references(() => analysisRuns.id),
+  issueId: varchar("issue_id").notNull(),
+  accountLabel: varchar("account_label").notNull(),
+  humanSummary: text("human_summary").notNull(),
+  statutes: text("statutes").array(),
+  disputeAngle: varchar("dispute_angle").notNull(),
+  recommendedAction: text("recommended_action").notNull(),
+  priority: integer("priority").notNull(),
+  rawAiPayload: jsonb("raw_ai_payload"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Account summaries for UI display
+export const accountSummaries = pgTable("account_summaries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  runId: varchar("run_id").notNull().references(() => analysisRuns.id),
+  accountLabel: varchar("account_label").notNull(),
+  bureauIds: text("bureau_ids").array(),
+  topIssueIds: text("top_issue_ids").array(),
+  overallPriority: integer("overall_priority").notNull(),
+  meta: jsonb("meta"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAnalysisRunSchema = createInsertSchema(analysisRuns).omit({
+  id: true,
+  startedAt: true,
+});
+export type InsertAnalysisRun = z.infer<typeof insertAnalysisRunSchema>;
+export type AnalysisRun = typeof analysisRuns.$inferSelect;
+
+export const insertIssueSchema = createInsertSchema(issues).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertIssue = z.infer<typeof insertIssueSchema>;
+export type Issue = typeof issues.$inferSelect;
+
+export const insertAiIssueExplanationSchema = createInsertSchema(aiIssueExplanations).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertAiIssueExplanation = z.infer<typeof insertAiIssueExplanationSchema>;
+export type AiIssueExplanation = typeof aiIssueExplanations.$inferSelect;
+
+export const insertAccountSummarySchema = createInsertSchema(accountSummaries).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertAccountSummary = z.infer<typeof insertAccountSummarySchema>;
+export type AccountSummary = typeof accountSummaries.$inferSelect;
+
 // --- MAIL & FOLLOW-UP FLOW TABLES ---
 export const mailBatches = pgTable("mail_batches", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
