@@ -21,6 +21,7 @@ import AdminBulk from "@/pages/admin/bulk";
 import AdminCase from "@/pages/admin/case";
 import AdminLogin from "@/pages/admin-login";
 import AdminDashboard from "@/pages/admin-dashboard";
+import AdminSystemDashboard from "@/pages/admin-system-dashboard";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -37,6 +38,7 @@ function Router() {
     <Switch>
       <Route path="/admin/login" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
+      <Route path="/admin/system" component={AdminSystemDashboard} />
       <Route path="/subscribe" component={Subscribe} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />

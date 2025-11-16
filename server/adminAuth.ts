@@ -1,8 +1,8 @@
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import { db } from "./db";
-import { adminCredentials } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { adminCredentials, users, creditReports, disputeLetters, violations, mailBatches } from "@shared/schema";
+import { eq, count, sql } from "drizzle-orm";
 import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
@@ -115,6 +115,37 @@ adminAuthRouter.get("/api/admin/check", (req, res) => {
     });
   } else {
     res.json({ authenticated: false });
+  }
+});
+
+adminAuthRouter.get("/api/admin/stats", requireAdminAuth, async (req, res) => {
+  try {
+    const [usersCount] = await db.select({ count: count() }).from(users);
+    const [reportsCount] = await db.select({ count: count() }).from(creditReports);
+    const [lettersCount] = await db.select({ count: count() }).from(disputeLetters);
+    const [violationsCount] = await db.select({ count: count() }).from(violations);
+    
+    const [activeSubscriptionsResult] = await db
+      .select({ count: count() })
+      .from(users)
+      .where(sql`${users.stripeSubscriptionId} IS NOT NULL`);
+    
+    const [pendingMailResult] = await db
+      .select({ count: count() })
+      .from(mailBatches)
+      .where(eq(mailBatches.status, 'pending'));
+
+    res.json({
+      totalUsers: usersCount?.count || 0,
+      activeSubscriptions: activeSubscriptionsResult?.count || 0,
+      totalReports: reportsCount?.count || 0,
+      totalLetters: lettersCount?.count || 0,
+      pendingMail: pendingMailResult?.count || 0,
+      violationsDetected: violationsCount?.count || 0,
+    });
+  } catch (error) {
+    console.error("Error fetching admin stats:", error);
+    res.status(500).json({ message: "Failed to fetch statistics" });
   }
 });
 

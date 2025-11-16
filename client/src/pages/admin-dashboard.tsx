@@ -69,7 +69,7 @@ export default function AdminDashboard() {
           <div className="flex gap-3">
             <Button
               variant="outline"
-              onClick={() => setLocation("/dashboard")}
+              onClick={() => setLocation("/admin/system")}
               data-testid="button-system-dashboard"
             >
               <LayoutDashboard className="h-4 w-4 mr-2" />
