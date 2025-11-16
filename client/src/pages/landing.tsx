@@ -3,23 +3,42 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle, CreditCard, FileText, Zap } from "lucide-react";
 
 export default function Landing() {
-  const handleLogin = () => {
-    window.location.href = "/api/login";
+  const handleGetStarted = () => {
+    window.location.href = "/register";
+  };
+
+  const handleSignIn = () => {
+    window.location.href = "/login";
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary to-green-500">
-      <div className="container mx-auto px-4 py-16">
-        {/* Header */}
-        <div className="text-center text-white mb-16">
-          <div className="flex items-center justify-center mb-6">
-            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mr-4">
-              <CheckCircle className="w-8 h-8 text-white" />
+      <div className="container mx-auto px-4 py-8">
+        {/* Top Navigation */}
+        <div className="flex justify-between items-center mb-12">
+          <div className="flex items-center">
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center mr-3">
+              <CheckCircle className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-4xl font-bold">Personal Credit Pros</h1>
+            <h1 className="text-2xl font-bold text-white">Personal Credit Pros</h1>
           </div>
+          <Button
+            variant="outline"
+            className="bg-white/10 text-white border-white/30 hover:bg-white/20 hover:border-white/50"
+            onClick={handleSignIn}
+            data-testid="button-sign-in-header"
+          >
+            Sign In
+          </Button>
+        </div>
+
+        {/* Hero Section */}
+        <div className="text-center text-white mb-16">
+          <h2 className="text-4xl md:text-5xl font-bold mb-4">
+            Fix Your Credit Score with AI
+          </h2>
           <p className="text-xl text-blue-100 max-w-2xl mx-auto">
-            AI-Powered Credit Repair Platform - Fix Your Credit Score with Professional Dispute Letters
+            Professional dispute letters powered by artificial intelligence to help you repair your credit
           </p>
         </div>
 
@@ -53,7 +72,7 @@ export default function Landing() {
               </ul>
               <Button 
                 className="w-full" 
-                onClick={handleLogin}
+                onClick={handleGetStarted}
                 data-testid="button-start-free"
               >
                 Start DIY Plan
@@ -94,7 +113,7 @@ export default function Landing() {
               </ul>
               <Button 
                 className="w-full" 
-                onClick={handleLogin}
+                onClick={handleGetStarted}
                 data-testid="button-start-pro"
               >
                 Start Pro Plan
@@ -183,7 +202,7 @@ export default function Landing() {
           <Button 
             size="lg" 
             className="bg-white text-primary hover:bg-white/90 px-8 py-4 text-lg font-semibold"
-            onClick={handleLogin}
+            onClick={handleGetStarted}
             data-testid="button-get-started-main"
           >
             Get Started Today
@@ -191,22 +210,6 @@ export default function Landing() {
           <p className="text-white/80 text-sm mt-4">
             Start improving your credit score today
           </p>
-          
-          {/* Sign In for Existing Users */}
-          <div className="mt-8">
-            <p className="text-white/70 text-sm mb-3">
-              Already have an account?
-            </p>
-            <Button 
-              variant="outline"
-              size="lg"
-              className="bg-white/10 text-white border-white/30 hover:bg-white/20 hover:border-white/50 px-8 py-3"
-              onClick={handleLogin}
-              data-testid="button-sign-in"
-            >
-              Sign In
-            </Button>
-          </div>
         </div>
 
         {/* Admin Link */}
