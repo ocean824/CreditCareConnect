@@ -69,15 +69,20 @@ async function upsertUser(
   const email = claims["email"];
   const isAdmin = process.env.ADMIN_EMAILS?.split(',').map(e => e.trim()).includes(email);
   
-  await storage.upsertUser({
+  const userData: any = {
     id: claims["sub"],
     email: email,
     firstName: claims["first_name"],
     lastName: claims["last_name"],
     profileImageUrl: claims["profile_image_url"],
     role: isAdmin ? 'admin' : 'user',
-    plan: isAdmin ? 'DONE_FOR_YOU' : 'DIY',
-  });
+  };
+  
+  if (isAdmin) {
+    userData.plan = 'DONE_FOR_YOU';
+  }
+  
+  await storage.upsertUser(userData);
 }
 
 export async function setupAuth(app: Express) {
@@ -92,9 +97,16 @@ export async function setupAuth(app: Express) {
     tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
     verified: passport.AuthenticateCallback
   ) => {
-    const user = {};
+    const user = {} as any;
     updateUserSession(user, tokens);
     await upsertUser(tokens.claims());
+    
+    const dbUser = await storage.getUser(tokens.claims()["sub"]);
+    if (dbUser) {
+      user.role = dbUser.role;
+      user.id = dbUser.id;
+    }
+    
     verified(null, user);
   };
 
