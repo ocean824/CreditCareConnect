@@ -66,7 +66,7 @@ export const creditReports = pgTable("credit_reports", {
   userId: varchar("user_id").notNull().references(() => users.id),
   fileName: varchar("file_name").notNull(),
   fileUrl: varchar("file_url").notNull(),
-  bureau: varchar("bureau"), // EQUIFAX, TRANSUNION, EXPERIAN
+  bureau: varchar("bureau"), // EQUIFAX, TRANSUNION, EXPERIAN, TRI-MERGE
   analysisStatus: varchar("analysis_status").default("PENDING").notNull(), // PENDING, ANALYZING, COMPLETED, FAILED
   analysisResults: jsonb("analysis_results"), // JSON containing detected violations
   createdAt: timestamp("created_at").defaultNow(),
@@ -78,7 +78,7 @@ export const violations = pgTable("violations", {
   creditReportId: varchar("credit_report_id").notNull().references(() => creditReports.id),
   accountName: varchar("account_name").notNull(),
   accountNumber: varchar("account_number"),
-  bureau: varchar("bureau").notNull(),
+  bureau: varchar("bureau").notNull(), // EQUIFAX, TRANSUNION, EXPERIAN (violations from TRI-MERGE reports get tagged with specific bureau)
   violationType: varchar("violation_type").notNull(),
   description: text("description").notNull(),
   statute: varchar("statute").notNull(), // FCRA section

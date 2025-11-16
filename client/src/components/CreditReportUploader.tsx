@@ -88,6 +88,7 @@ export default function CreditReportUploader() {
             <SelectItem value="EQUIFAX">Equifax</SelectItem>
             <SelectItem value="TRANSUNION">TransUnion</SelectItem>
             <SelectItem value="EXPERIAN">Experian</SelectItem>
+            <SelectItem value="TRI-MERGE">TRI-Merge</SelectItem>
           </SelectContent>
         </Select>
       </div>

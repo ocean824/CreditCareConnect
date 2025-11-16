@@ -116,11 +116,21 @@ Preferred communication style: Simple, everyday language.
 
 **Local AI Fallback**: Ollama integration for on-premise AI processing when available
 
+**Credit Report Types Supported**:
+- **EQUIFAX** - Single bureau reports from Equifax
+- **TRANSUNION** - Single bureau reports from TransUnion
+- **EXPERIAN** - Single bureau reports from Experian
+- **TRI-MERGE** - Combined reports containing data from all three bureaus
+  - When analyzing TRI-Merge reports, AI extracts violations and tags each with the specific bureau (EQUIFAX, TRANSUNION, or EXPERIAN)
+  - Violations are NOT tagged as "TRI-MERGE" - each violation receives the actual bureau name
+  - Letter generation remains bureau-specific (one letter per bureau)
+
 **Key Design Decisions**:
 - Structured prompts for consistent violation detection across FCRA statutes
 - JSON response format from AI for reliable parsing
 - Severity classification (HIGH/MEDIUM/LOW) for prioritization
 - Case law citation integration for legal compliance
+- Bureau-aware analysis for TRI-Merge reports
 
 ### External Dependencies
 

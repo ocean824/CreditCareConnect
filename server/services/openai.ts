@@ -15,14 +15,26 @@ export interface CreditReportViolation {
   bureau: string;
 }
 
-export async function analyzeCreditReport(reportText: string): Promise<{
+export async function analyzeCreditReport(reportText: string, bureau?: string): Promise<{
   violations: CreditReportViolation[];
   summary: string;
 }> {
   try {
+    const bureauInstruction = bureau === "TRI-MERGE" 
+      ? `
+      This is a TRI-MERGE credit report containing data from all three bureaus (Equifax, TransUnion, Experian).
+      For each violation, identify which specific bureau (EQUIFAX, TRANSUNION, or EXPERIAN) the violation appears on.
+      Each violation should be tagged with the specific bureau name, NOT "TRI-MERGE".
+      `
+      : bureau 
+      ? `This report is from ${bureau}. All violations should be tagged with bureau: "${bureau}".`
+      : `Identify which bureau each violation appears on (EQUIFAX, TRANSUNION, or EXPERIAN).`;
+
     const prompt = `
     You are a credit repair expert analyzing credit reports for Metro2 and FCRA violations. 
     Analyze the following credit report text and identify all violations.
+    
+    ${bureauInstruction}
     
     Look for these common violations:
     - Missing Date of First Delinquency (DOFD)
@@ -40,7 +52,7 @@ export async function analyzeCreditReport(reportText: string): Promise<{
     - Description of the issue
     - Relevant FCRA statute (e.g., "FCRA §1681e(b)")
     - Severity level (HIGH, MEDIUM, LOW)
-    - Bureau where violation appears
+    - Bureau where violation appears (must be EQUIFAX, TRANSUNION, or EXPERIAN)
     
     Return response in JSON format with violations array and summary.
     
