@@ -24,10 +24,10 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// User storage table - required for Replit Auth
+// User storage table
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
+  email: varchar("email").unique().notNull(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
@@ -35,6 +35,17 @@ export const users = pgTable("users", {
   role: varchar("role", { length: 10 }).notNull().default("user"), // user, admin
   stripeCustomerId: varchar("stripe_customer_id"),
   stripeSubscriptionId: varchar("stripe_subscription_id"),
+  subscriptionStatus: varchar("subscription_status").default("inactive").notNull(), // active, inactive, cancelled, past_due
+  subscriptionExpiresAt: timestamp("subscription_expires_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// User credentials for email/password authentication
+export const userCredentials = pgTable("user_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").unique().notNull().references(() => users.id),
+  passwordHash: varchar("password_hash").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -135,6 +146,14 @@ export const cfpbComplaints = pgTable("cfpb_complaints", {
 // Schema types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+
+export const insertUserCredentialSchema = createInsertSchema(userCredentials).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertUserCredential = z.infer<typeof insertUserCredentialSchema>;
+export type UserCredential = typeof userCredentials.$inferSelect;
 
 export const insertAdminCredentialSchema = createInsertSchema(adminCredentials).omit({
   id: true,
