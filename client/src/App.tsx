@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
+import UserLogin from "@/pages/user-login";
+import UserRegister from "@/pages/user-register";
 import Dashboard from "@/pages/dashboard";
 import ProfilePage from "@/pages/profile";
 import Analysis from "@/pages/analysis";
@@ -24,7 +26,7 @@ import AdminDashboard from "@/pages/admin-dashboard";
 import AdminSystemDashboard from "@/pages/admin-system-dashboard";
 
 function Router() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -34,14 +36,24 @@ function Router() {
     );
   }
 
+  const hasActiveSubscription = user?.subscriptionStatus === "active";
+
   return (
     <Switch>
+      <Route path="/login" component={UserLogin} />
+      <Route path="/register" component={UserRegister} />
       <Route path="/admin/login" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/system" component={AdminSystemDashboard} />
       <Route path="/subscribe" component={Subscribe} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />
+      ) : !hasActiveSubscription ? (
+        <>
+          <Route path="/" component={Landing} />
+          <Route path="/dashboard" component={Landing} />
+          <Route component={Landing} />
+        </>
       ) : (
         <>
           <Route path="/" component={Dashboard} />

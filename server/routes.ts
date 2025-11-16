@@ -2,7 +2,6 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import Stripe from "stripe";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
 import { rateLimit } from "./middleware/rateLimit";
 
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -35,23 +34,29 @@ import {
   type FreezeUserInfo,
 } from "./services/freezeAgent";
 import adminAuthRouter, { getAdminSession } from "./adminAuth";
+import userAuthRouter, { requireAuth, requireActiveSubscription } from "./userAuth";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth middleware
-  await setupAuth(app);
-  
-  // Admin password-based auth session (separate from user OIDC session)
+  // Admin password-based auth session (separate from user session)
   app.use("/api/admin", getAdminSession());
   app.use("/admin", getAdminSession());
   
   // Admin password-based auth routes
   app.use(adminAuthRouter);
+  
+  // User password-based auth routes
+  app.use(userAuthRouter);
 
-  // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+  // Auth routes - get current user
+  app.get('/api/auth/user', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const userId = req.session.userId;
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
       res.json(user);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -60,9 +65,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update user profile
-  app.patch('/api/auth/profile', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/auth/profile', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       
       // Validate input
       const updateProfileSchema = z.object({
@@ -73,8 +78,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = updateProfileSchema.parse(req.body);
       const { firstName, lastName } = validatedData;
 
-      await storage.updateUserProfile(userId, { firstName, lastName });
-      const updatedUser = await storage.getUser(userId);
+      await db.update(users)
+        .set({ 
+          firstName, 
+          lastName,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, userId));
+      
+      const [updatedUser] = await db.select().from(users).where(eq(users.id, userId));
       
       res.json(updatedUser);
     } catch (error: any) {
@@ -87,9 +99,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Client self-info (with role for RBAC)
-  app.get('/api/me', isAuthenticated, async (req: any, res) => {
+  app.get('/api/me', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -109,14 +121,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Stripe checkout session creation
   app.post('/api/create-checkout-session', 
     rateLimit({ windowMs: 60_000, max: 5, namespace: 'stripe-checkout' }),
-    isAuthenticated, 
+    requireAuth, 
     async (req: any, res) => {
     try {
       if (!stripe) {
         return res.status(503).json({ error: "Payment system is not configured. Please contact support." });
       }
       
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       const user = await storage.getUser(userId);
       
       if (!user || !user.email) {
@@ -176,10 +188,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Credit Report Analysis
   app.post('/api/credit-reports/upload', 
     rateLimit({ windowMs: 60_000, max: 10, namespace: 'credit-upload' }),
-    isAuthenticated, 
+    requireActiveSubscription, 
     async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       const { fileName, fileUrl, bureau } = req.body;
 
       // Validate request
@@ -257,9 +269,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/credit-reports', isAuthenticated, async (req: any, res) => {
+  app.get('/api/credit-reports', requireActiveSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       const creditReports = await storage.getCreditReportsByUserId(userId);
       res.json(creditReports);
     } catch (error) {
@@ -269,9 +281,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Violations
-  app.get('/api/violations', isAuthenticated, async (req: any, res) => {
+  app.get('/api/violations', requireActiveSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       const violations = await storage.getViolationsByUserId(userId);
       res.json(violations);
     } catch (error) {
@@ -281,9 +293,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Dispute Letters
-  app.post('/api/dispute-letters/generate', isAuthenticated, async (req: any, res) => {
+  app.post('/api/dispute-letters/generate', requireActiveSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       const user = await storage.getUser(userId);
       
       // Validate input
@@ -381,9 +393,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/dispute-letters', isAuthenticated, async (req: any, res) => {
+  app.get('/api/dispute-letters', requireActiveSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       const letters = await storage.getDisputeLettersByUserId(userId);
       res.json(letters);
     } catch (error) {
@@ -392,10 +404,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/dispute-letters/:id/download', isAuthenticated, async (req: any, res) => {
+  app.get('/api/dispute-letters/:id/download', requireActiveSubscription, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const letters = await storage.getDisputeLettersByUserId(req.user.claims.sub);
+      const letters = await storage.getDisputeLettersByUserId(req.session.userId);
       const letter = letters.find(l => l.id === id);
 
       if (!letter) {
@@ -413,9 +425,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI Chat (stubbed until OpenAI key is configured)
-  app.post('/api/chat', isAuthenticated, async (req: any, res) => {
+  app.post('/api/chat', requireActiveSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       const user = await storage.getUser(userId);
       const { message, conversationId } = req.body;
 
@@ -467,9 +479,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // CFPB Complaint Generation
-  app.post('/api/cfpb-complaints/generate', isAuthenticated, async (req: any, res) => {
+  app.post('/api/cfpb-complaints/generate', requireActiveSubscription, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       const user = await storage.getUser(userId);
 
       if (!user) {
@@ -516,7 +528,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin Routes (protected by adminOnly middleware)
-  app.get('/api/admin/stats', isAuthenticated, adminOnly, async (req: any, res) => {
+  app.get('/api/admin/stats', adminOnly, async (req: any, res) => {
     try {
       const stats = await storage.getUserStats();
       res.json(stats);
@@ -526,7 +538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/users', isAuthenticated, adminOnly, async (req: any, res) => {
+  app.get('/api/admin/users', adminOnly, async (req: any, res) => {
     try {
       const users = await storage.getAllUsers();
       res.json(users);
@@ -672,10 +684,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
    */
   app.post('/api/freeze-opt-out', 
     rateLimit({ windowMs: 3_600_000, max: 3, namespace: 'freeze-optout' }), // 3 requests per hour
-    isAuthenticated, 
+    requireActiveSubscription, 
     async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session.userId;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
