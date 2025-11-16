@@ -54,6 +54,10 @@ Preferred communication style: Simple, everyday language.
 - `POST /api/dispute-letters/generate` - Generate dispute letter with AI
 - `GET /api/dispute-letters` - List user's dispute letters
 - `GET /api/dispute-letters/:id/download` - Download letter PDF
+- `POST /api/admin/login` - Admin password-based authentication
+- `POST /api/admin/logout` - Admin session termination with regeneration
+- `GET /api/admin/check` - Verify admin authentication status
+- `GET /api/admin/stats` - Aggregate platform statistics (admin-only)
 
 **Key Design Decisions**:
 - Modular service layer separating business logic from route handlers
@@ -69,6 +73,7 @@ Preferred communication style: Simple, everyday language.
 
 **Schema Design**:
 - `users` - Core user profiles with plan tier and payment identifiers
+- `adminCredentials` - Password-hashed admin login credentials (bcrypt, 10 rounds)
 - `creditReports` - Uploaded reports with analysis status and results
 - `violations` - Detected FCRA/Metro2 violations linked to reports
 - `disputeLetters` - Generated dispute letters with mailing status
@@ -135,9 +140,12 @@ Preferred communication style: Simple, everyday language.
 ### Security & Compliance
 
 **Authentication Security**:
+- User authentication: Replit OIDC integration with secure token refresh
+- Admin authentication: Password-based with bcrypt hashing (10 rounds)
+- Dual session system: Separate cookies for user (`connect.sid`) and admin (`admin_session`)
+- Session regeneration on login/logout prevents fixation attacks
 - HTTPS-only cookie sessions with configurable TTL (7 days default)
 - CSRF protection via same-site cookie policies
-- Replit OIDC integration with secure token refresh
 
 **Data Protection**:
 - PII redaction for internal storage of credit reports
@@ -162,6 +170,13 @@ Preferred communication style: Simple, everyday language.
 - Secure one-time action links for client responses
 
 **Admin Capabilities**:
+- Password-based admin authentication (separate from user OIDC sessions)
+- Admin credentials: username='admin', password='CCPros10miL$$', email='admin@personalcreditpros.com'
+- Separate admin session cookie (`admin_session`) prevents cross-session interference
+- Admin System Dashboard (`/admin/system`) - aggregate platform statistics:
+  - Total users, active subscriptions, credit reports analyzed
+  - Dispute letters generated, pending mail batches, violations detected
+  - Real-time statistics fetched from dedicated API endpoint
 - Bulk operations for letter generation and mailing
 - User management with role assignment
 - Case tracking and response processing
