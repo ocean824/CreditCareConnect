@@ -71,7 +71,9 @@ export default function Dashboard() {
                     Welcome back, {user?.firstName || "User"}!
                   </h1>
                   <p className="text-blue-100">
-                    Current Plan: <span className="font-semibold">{user?.plan === "DIY" ? "DIY Mode" : "Done-For-You"}</span>
+                    Current Plan: <span className="font-semibold">
+                      {user?.plan === "DIY" ? "DIY" : user?.plan === "ENTERPRISE" ? "Enterprise" : "Done-For-You"}
+                    </span>
                   </p>
                 </div>
                 <div className="text-right">

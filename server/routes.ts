@@ -227,8 +227,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Download and parse the uploaded credit report
           console.log(`📄 Analyzing credit report: ${fileName}`);
           
-          // Download the file from the URL
-          const filePath = path.join(process.env.FILES_DIR || "./files", fileName);
+          // Determine the file path with security validation
+          const filesDir = process.env.FILES_DIR || "./files";
+          
+          // SECURITY: Sanitize fileName to prevent path traversal attacks
+          const sanitizedFileName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
+          if (!sanitizedFileName || sanitizedFileName === '.' || sanitizedFileName === '..') {
+            throw new Error('Invalid file name');
+          }
+          
+          const filePath = path.join(filesDir, sanitizedFileName);
+          
+          // Check if file exists locally, if not it's a remote URL that needs downloading
+          if (!fs.existsSync(filePath)) {
+            console.log(`📥 Downloading file from ${fileUrl}...`);
+            
+            // SECURITY: Validate fileUrl to prevent SSRF attacks
+            let parsedUrl;
+            try {
+              parsedUrl = new URL(fileUrl);
+            } catch (e) {
+              throw new Error('Invalid file URL');
+            }
+            
+            // Only allow HTTPS and block private IPs
+            if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+              throw new Error('Only HTTP/HTTPS URLs are allowed');
+            }
+            
+            // Block private IP ranges and localhost
+            const hostname = parsedUrl.hostname.toLowerCase();
+            if (
+              hostname === 'localhost' ||
+              hostname === '127.0.0.1' ||
+              hostname.startsWith('192.168.') ||
+              hostname.startsWith('10.') ||
+              hostname.startsWith('172.16.') ||
+              hostname.startsWith('172.17.') ||
+              hostname.startsWith('172.18.') ||
+              hostname.startsWith('172.19.') ||
+              hostname.startsWith('172.20.') ||
+              hostname.startsWith('172.21.') ||
+              hostname.startsWith('172.22.') ||
+              hostname.startsWith('172.23.') ||
+              hostname.startsWith('172.24.') ||
+              hostname.startsWith('172.25.') ||
+              hostname.startsWith('172.26.') ||
+              hostname.startsWith('172.27.') ||
+              hostname.startsWith('172.28.') ||
+              hostname.startsWith('172.29.') ||
+              hostname.startsWith('172.30.') ||
+              hostname.startsWith('172.31.') ||
+              hostname.startsWith('169.254.') ||
+              hostname === '[::1]'
+            ) {
+              throw new Error('Access to private networks is not allowed');
+            }
+            
+            try {
+              // Ensure the files directory exists
+              if (!fs.existsSync(filesDir)) {
+                fs.mkdirSync(filesDir, { recursive: true });
+              }
+              
+              // Download the file with timeout
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+              
+              const response = await fetch(fileUrl, { 
+                signal: controller.signal,
+                redirect: 'follow',
+                headers: {
+                  'User-Agent': 'PersonalCreditPros/1.0'
+                }
+              });
+              clearTimeout(timeout);
+              
+              if (!response.ok) {
+                throw new Error(`Failed to download file: ${response.statusText}`);
+              }
+              
+              // Limit file size to 50MB
+              const contentLength = response.headers.get('content-length');
+              if (contentLength && parseInt(contentLength) > 50 * 1024 * 1024) {
+                throw new Error('File size exceeds 50MB limit');
+              }
+              
+              const buffer = await response.arrayBuffer();
+              
+              // Write the file to disk
+              fs.writeFileSync(filePath, Buffer.from(buffer), { mode: 0o600 }); // Restrict permissions
+              console.log(`✅ Downloaded file to ${filePath}`);
+            } catch (downloadError: any) {
+              console.error(`❌ Download failed:`, downloadError.message);
+              throw new Error(`Failed to download credit report: ${downloadError.message}`);
+            }
+          }
           
           // Extract text from PDF using OCR
           let reportText = "";
@@ -246,14 +340,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             console.log(`🤖 Parsing credit report with AI...`);
             parsedReport = await parseCreditReportText(reportText, bureau);
-            console.log(`✅ Successfully parsed credit report`);
+            
+            // Log parsing results
+            const bureauCount = parsedReport.bureaus.length;
+            const tradelineCount = parsedReport.bureaus.reduce((sum, b) => sum + b.tradelines.length, 0);
+            const collectionCount = parsedReport.bureaus.reduce((sum, b) => sum + b.collections.length, 0);
+            console.log(`✅ Successfully parsed credit report:`);
+            console.log(`   📊 Bureaus: ${bureauCount}, Tradelines: ${tradelineCount}, Collections: ${collectionCount}`);
           } catch (parseError: any) {
             console.error(`❌ Parsing failed:`, parseError.message);
             throw new Error(`Failed to parse credit report: ${parseError.message}`);
           }
           
           // Run advanced analysis (rules engine + AI explanations)
+          console.log(`🔬 Running rules engine analysis...`);
           const analysisResult = await analyzeWithRulesEngine(parsedReport);
+          console.log(`✅ Rules engine analysis complete: ${analysisResult.issues.length} issues detected`);
           
           // Save issues to database
           for (const issue of analysisResult.issues) {
