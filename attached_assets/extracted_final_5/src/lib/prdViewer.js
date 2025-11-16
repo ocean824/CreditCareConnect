@@ -51,14 +51,24 @@ export function renderPRDViewer(container) {
 
   const tabs = document.querySelectorAll(".tab");
   const contentArea = document.getElementById("prdContent");
+  const allowedTabs = ['upload', 'ai', 'click2mail'];
+  
   tabs.forEach(tab => {
     tab.onclick = () => {
+      const tabName = tab.dataset.tab;
+      
+      // Validate tab name against allowed values
+      if (!allowedTabs.includes(tabName)) {
+        console.warn('Invalid tab selection:', tabName);
+        return;
+      }
+      
       tabs.forEach(t => t.style.background = "#f3f4f6");
       tab.style.background = "#e0e7ff";
       // Safe DOM manipulation: clear and append parsed content
       contentArea.textContent = '';
       const template = document.createElement('template');
-      template.innerHTML = content[tab.dataset.tab];
+      template.innerHTML = content[tabName];
       contentArea.appendChild(template.content);
     };
   });
