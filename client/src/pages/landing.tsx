@@ -191,6 +191,22 @@ export default function Landing() {
           <p className="text-white/80 text-sm mt-4">
             Start improving your credit score today
           </p>
+          
+          {/* Sign In for Existing Users */}
+          <div className="mt-8">
+            <p className="text-white/70 text-sm mb-3">
+              Already have an account?
+            </p>
+            <Button 
+              variant="outline"
+              size="lg"
+              className="bg-white/10 text-white border-white/30 hover:bg-white/20 hover:border-white/50 px-8 py-3"
+              onClick={handleLogin}
+              data-testid="button-sign-in"
+            >
+              Sign In
+            </Button>
+          </div>
         </div>
 
         {/* Admin Link */}
