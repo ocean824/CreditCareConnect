@@ -190,7 +190,7 @@ export default function Dashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {disputeLetters?.length > 0 ? (
+                    {disputeLetters && disputeLetters.length > 0 ? (
                       disputeLetters.slice(0, 3).map((letter, index) => (
                         <div key={letter.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                           <div className="flex items-center space-x-3">

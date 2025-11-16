@@ -194,7 +194,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // File upload endpoint for credit reports
   const creditReportUpload = multer({
-    dest: process.env.FILES_DIR || "./files",
+    storage: multer.diskStorage({
+      destination: (req, file, cb) => {
+        const filesDir = process.env.FILES_DIR || "./files";
+        // Ensure directory exists
+        if (!fs.existsSync(filesDir)) {
+          fs.mkdirSync(filesDir, { recursive: true });
+        }
+        cb(null, filesDir);
+      },
+      filename: (req, file, cb) => {
+        // Generate a unique filename while preserving the extension
+        const ext = path.extname(file.originalname).toLowerCase();
+        const uniqueName = `${crypto.randomUUID()}${ext}`;
+        cb(null, uniqueName);
+      }
+    }),
     limits: {
       fileSize: 10 * 1024 * 1024, // 10MB limit
     },
@@ -224,11 +239,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: "No file uploaded" });
         }
 
-        // File is saved by multer, return the path
-        const fileUrl = `/files/${path.basename(req.file.path)}`;
+        // Multer saves with a hashed filename - we need to return the actual saved filename
+        const savedFileName = path.basename(req.file.path);
+        const fileUrl = `/files/${savedFileName}`;
         
         res.json({
-          fileName: req.file.originalname,
+          fileName: savedFileName,  // Return the actual saved filename, not originalname
+          originalName: req.file.originalname,  // Keep original for display purposes
           fileUrl,
           fileSize: req.file.size,
           mimeType: req.file.mimetype
@@ -275,19 +292,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Download and parse the uploaded credit report
           console.log(`📄 Analyzing credit report: ${fileName}`);
           
-          // Determine the file path with security validation
+          // Determine the file path from fileUrl ONLY (don't trust client-provided fileName)
           const filesDir = process.env.FILES_DIR || "./files";
           
-          // SECURITY: Sanitize fileName to prevent path traversal attacks
-          const sanitizedFileName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
-          if (!sanitizedFileName || sanitizedFileName === '.' || sanitizedFileName === '..') {
-            throw new Error('Invalid file name');
+          let filePath;
+          let isLocalFile = false;
+          
+          // Check if fileUrl is a relative path (local file) or absolute URL (remote/local file)
+          // Only treat it as local if it's a relative path starting with /files/
+          if (fileUrl.startsWith('/files/')) {
+            isLocalFile = true;
+            // Extract the filename from the relative URL
+            const localFileName = path.basename(fileUrl);
+            
+            // SECURITY: Sanitize fileName to prevent path traversal attacks
+            const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+            if (!sanitizedFileName || sanitizedFileName === '.' || sanitizedFileName === '..') {
+              throw new Error('Invalid file name');
+            }
+            
+            filePath = path.join(filesDir, sanitizedFileName);
+            console.log(`📁 Using local file: ${filePath}`);
+          } else {
+            // URL (could be remote or localhost) - prepare to download it
+            // Extract extension from pathname (not full URL) to avoid query params
+            let fileExt = '.pdf'; // Default to PDF
+            try {
+              const parsedUrl = new URL(fileUrl);
+              const pathname = parsedUrl.pathname;
+              const extFromPath = path.extname(pathname).toLowerCase();
+              // Only use if it's a valid extension
+              if (['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(extFromPath)) {
+                fileExt = extFromPath;
+              }
+            } catch (e) {
+              // If URL parsing fails, fallback to PDF
+              console.warn('Failed to parse fileUrl for extension, using .pdf');
+            }
+            
+            const downloadFileName = `${crypto.randomUUID()}${fileExt}`;
+            filePath = path.join(filesDir, downloadFileName);
           }
           
-          const filePath = path.join(filesDir, sanitizedFileName);
-          
-          // Check if file exists locally, if not it's a remote URL that needs downloading
-          if (!fs.existsSync(filePath)) {
+          // Check if file exists locally, if not and it's a remote URL, download it
+          if (!fs.existsSync(filePath) && !isLocalFile) {
             console.log(`📥 Downloading file from ${fileUrl}...`);
             
             // SECURITY: Validate fileUrl to prevent SSRF attacks
