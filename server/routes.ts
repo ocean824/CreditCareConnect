@@ -8,7 +8,7 @@ if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
 }
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2024-11-20.acacia",
+  apiVersion: "2025-08-27.basil",
 });
 import { click2mailService } from "./services/click2mail";
 import { letterGeneratorService } from "./services/letterGenerator";
@@ -472,13 +472,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin Routes (protected by plan check)
+  // Admin Routes (protected by adminOnly middleware)
   app.get('/api/admin/stats', isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.claims.sub);
       
-      // Simple admin check - in production you'd have proper role-based access
-      if (!user?.email?.includes('admin')) {
+      if (user?.role !== 'admin') {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -494,7 +493,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = await storage.getUser(req.user.claims.sub);
       
-      if (!user?.email?.includes('admin')) {
+      if (user?.role !== 'admin') {
         return res.status(403).json({ message: "Admin access required" });
       }
 
