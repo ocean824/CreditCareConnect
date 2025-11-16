@@ -37,6 +37,7 @@ import adminAuthRouter, { getAdminSession } from "./adminAuth";
 import userAuthRouter, { requireAuth, requireActiveSubscription, getUserSession } from "./userAuth";
 import { analyzeWithRulesEngine } from "./services/advancedCreditAnalysis";
 import { createSampleCreditReport } from "./utils/creditReportConverter";
+import { parseCreditReportText } from "./services/creditReportParser";
 import { nanoid } from "nanoid";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -223,16 +224,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
             status: "running",
           });
 
-          // For MVP, use sample credit report with realistic violations
-          // In production, you would:
-          // 1. Extract text from PDF using: const reportText = await ocrPdfOrImage(filePath);
-          // 2. Parse text into CreditReport object using AI or structured parser
-          // 3. Pass parsed report to analyzeWithRulesEngine
+          // Download and parse the uploaded credit report
+          console.log(`📄 Analyzing credit report: ${fileName}`);
           
-          const sampleReport = createSampleCreditReport();
+          // Download the file from the URL
+          const filePath = path.join(process.env.FILES_DIR || "./files", fileName);
+          
+          // Extract text from PDF using OCR
+          let reportText = "";
+          try {
+            console.log(`🔍 Extracting text from ${filePath}...`);
+            reportText = await ocrPdfOrImage(filePath);
+            console.log(`✅ Extracted ${reportText.length} characters from credit report`);
+          } catch (ocrError: any) {
+            console.error(`❌ OCR failed:`, ocrError.message);
+            throw new Error(`Failed to extract text from credit report: ${ocrError.message}`);
+          }
+          
+          // Parse the text into a structured CreditReport object using AI
+          let parsedReport;
+          try {
+            console.log(`🤖 Parsing credit report with AI...`);
+            parsedReport = await parseCreditReportText(reportText, bureau);
+            console.log(`✅ Successfully parsed credit report`);
+          } catch (parseError: any) {
+            console.error(`❌ Parsing failed:`, parseError.message);
+            throw new Error(`Failed to parse credit report: ${parseError.message}`);
+          }
           
           // Run advanced analysis (rules engine + AI explanations)
-          const analysisResult = await analyzeWithRulesEngine(sampleReport);
+          const analysisResult = await analyzeWithRulesEngine(parsedReport);
           
           // Save issues to database
           for (const issue of analysisResult.issues) {
