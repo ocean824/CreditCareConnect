@@ -42,7 +42,8 @@ export default function UserLogin() {
         description: `Welcome back, ${data.user.firstName || data.user.email}!`,
       });
 
-      setLocation("/dashboard");
+      // Force page reload to refresh auth state
+      window.location.href = "/dashboard";
     } catch (error: any) {
       toast({
         title: "Login Failed",
