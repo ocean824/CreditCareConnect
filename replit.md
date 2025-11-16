@@ -16,6 +16,18 @@ The system is built as a full-stack web application using React frontend with Ty
 - Integrated rules engine into credit report upload workflow with backwards compatibility
 - Configured graceful degradation when OpenAI API key is not available (server no longer crashes)
 
+**Round 1/2/3 Dispute Letter System Implementation:**
+- Enhanced disputeLetters table schema with `round` (1-3), `recipientType` (BUREAU/COLLECTOR), and `recipientName` fields
+- Implemented sophisticated Round 1/2/3 escalation templates matching PRD specifications:
+  - **Round 1**: Professional reinvestigation request citing FCRA § 611(a)(1)(A)
+  - **Round 2**: Escalated follow-up with 30-day deadline reminder and prior dispute reference
+  - **Round 3**: Final notice threatening CFPB complaint with regulatory language
+- Created FDCPA-compliant collection agency validation letter templates per PRD requirements
+- Updated `/api/dispute-letters/generate` endpoint to accept `round`, `recipientType`, and `recipientName` parameters
+- Database migration applied via `npm run db:push` - production schema updated
+- Backwards compatibility maintained: defaults to Round 1 bureau letters if round not specified
+- Fixed Click2Mail integration to properly use user address data for automated mailing
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
