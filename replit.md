@@ -41,23 +41,38 @@ Preferred communication style: Simple, everyday language.
 
 **API Design**: RESTful API with JSON payloads and standardized error handling
 
-**Authentication**: OpenID Connect (OIDC) integration with Replit Auth using Passport.js strategies and session-based authentication stored in PostgreSQL
+**Authentication**: 
+- **User Authentication**: Email/password-based authentication with bcrypt password hashing (10 rounds) and session management
+- **Admin Authentication**: Separate password-based authentication with dedicated admin session cookie
+- Session storage: PostgreSQL-backed session store for both user and admin sessions
 
-**Authorization**: Role-based access control (RBAC) with `user` and `admin` roles enforced via middleware guards (`adminOnly`, `isAuthenticated`)
+**Authorization**: 
+- Role-based access control (RBAC) with `user` and `admin` roles enforced via middleware guards
+- Subscription-gating: Users must have active subscription (`subscriptionStatus === 'active'`) to access platform features
+- Middleware: `requireAuth` (authentication), `requireActiveSubscription` (subscription check), `adminOnly` (admin access)
+- Special access: jarred@anunlimitedllc.com has free enterprise-level access with admin privileges
 
-**API Endpoints**:
-- `GET /api/auth/user` - Retrieve authenticated user profile
-- `PATCH /api/auth/profile` - Update user first name and last name
+**User Authentication API Endpoints**:
+- `POST /api/user/register` - Create new user account with email/password
+- `POST /api/user/login` - Authenticate user with email/password
+- `POST /api/user/logout` - End user session
+- `GET /api/user/check` - Check user authentication status
+- `GET /api/auth/user` - Retrieve authenticated user profile (requires auth)
+- `PATCH /api/auth/profile` - Update user first name and last name (requires auth)
+
+**Admin Authentication API Endpoints**:
+- `POST /api/admin/login` - Admin password-based authentication
+- `POST /api/admin/logout` - Admin session termination with regeneration
+- `GET /api/admin/check` - Verify admin authentication status
+- `GET /api/admin/stats` - Aggregate platform statistics (admin-only)
+
+**Protected User API Endpoints** (require active subscription):
 - `POST /api/credit-reports/upload` - Upload credit report for analysis
 - `GET /api/credit-reports` - List user's credit reports
 - `GET /api/violations` - List detected violations
 - `POST /api/dispute-letters/generate` - Generate dispute letter with AI
 - `GET /api/dispute-letters` - List user's dispute letters
 - `GET /api/dispute-letters/:id/download` - Download letter PDF
-- `POST /api/admin/login` - Admin password-based authentication
-- `POST /api/admin/logout` - Admin session termination with regeneration
-- `GET /api/admin/check` - Verify admin authentication status
-- `GET /api/admin/stats` - Aggregate platform statistics (admin-only)
 
 **Key Design Decisions**:
 - Modular service layer separating business logic from route handlers
@@ -72,8 +87,10 @@ Preferred communication style: Simple, everyday language.
 **ORM**: Drizzle ORM for type-safe database queries with schema-first design
 
 **Schema Design**:
-- `users` - Core user profiles with plan tier and payment identifiers
+- `users` - Core user profiles with plan tier, subscription status, and payment identifiers
+- `userCredentials` - Password-hashed user login credentials (bcrypt, 10 rounds)
 - `adminCredentials` - Password-hashed admin login credentials (bcrypt, 10 rounds)
+- `sessions` - PostgreSQL session storage for both user and admin authentication
 - `creditReports` - Uploaded reports with analysis status and results
 - `violations` - Detected FCRA/Metro2 violations linked to reports
 - `disputeLetters` - Generated dispute letters with mailing status
@@ -140,8 +157,8 @@ Preferred communication style: Simple, everyday language.
 ### Security & Compliance
 
 **Authentication Security**:
-- User authentication: Replit OIDC integration with secure token refresh
-- Admin authentication: Password-based with bcrypt hashing (10 rounds)
+- User authentication: Email/password-based authentication with bcrypt hashing (10 rounds)
+- Admin authentication: Separate password-based authentication with bcrypt hashing (10 rounds)
 - Dual session system: Separate cookies for user (`connect.sid`) and admin (`admin_session`)
 - Session regeneration on login/logout prevents fixation attacks
 - HTTPS-only cookie sessions with configurable TTL (7 days default)
@@ -170,7 +187,7 @@ Preferred communication style: Simple, everyday language.
 - Secure one-time action links for client responses
 
 **Admin Capabilities**:
-- Password-based admin authentication (separate from user OIDC sessions)
+- Password-based admin authentication (separate from user email/password sessions)
 - Admin credentials: username='admin', password='CCPros10miL$$', email='admin@personalcreditpros.com'
 - Separate admin session cookie (`admin_session`) prevents cross-session interference
 - Admin System Dashboard (`/admin/system`) - aggregate platform statistics:

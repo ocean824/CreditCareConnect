@@ -9,7 +9,6 @@ import fs from "fs";
 import { requestId } from "./middleware/requestId";
 import { errorHandler } from "./middleware/errorHandler";
 import { rateLimit } from "./middleware/rateLimit";
-import { testAuth } from "./middleware/testAuth";
 import { registerObservability } from "./observability";
 import { registerOpenApi } from "./openapi";
 
@@ -25,9 +24,6 @@ app.use(express.urlencoded({ extended: false }));
 
 // Attach requestId early
 app.use(requestId);
-
-// Enable test-only auth shim
-app.use(testAuth);
 
 const FILES_DIR = process.env.FILES_DIR || path.join(process.cwd(), "files");
 if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
