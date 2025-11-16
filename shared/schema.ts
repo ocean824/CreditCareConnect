@@ -93,6 +93,9 @@ export const disputeLetters = pgTable("dispute_letters", {
   userId: varchar("user_id").notNull().references(() => users.id),
   bureau: varchar("bureau").notNull(),
   letterType: varchar("letter_type").notNull(), // INITIAL, FOLLOW_UP, CFPB
+  round: integer("round").default(1).notNull(), // 1 (Round 1), 2 (Round 2), 3 (Round 3)
+  recipientType: varchar("recipient_type").default("BUREAU").notNull(), // BUREAU, COLLECTOR
+  recipientName: varchar("recipient_name"), // For collectors: LVNV Funding, etc.
   content: text("content").notNull(),
   pdfUrl: varchar("pdf_url"),
   status: varchar("status").default("DRAFT").notNull(), // DRAFT, GENERATED, SENT, RESPONDED

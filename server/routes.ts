@@ -484,14 +484,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.session.userId;
       const user = await storage.getUser(userId);
       
-      // Validate input
+      // Validate input - now supports round and recipientType
       const generateLetterSchema = z.object({
         bureau: z.enum(['EQUIFAX', 'TRANSUNION', 'EXPERIAN']),
         violationIds: z.array(z.string()).min(1, "At least one violation must be selected"),
+        round: z.number().int().min(1).max(3).optional().default(1),
+        recipientType: z.enum(['BUREAU', 'COLLECTOR']).optional().default('BUREAU'),
+        recipientName: z.string().optional(),
+        priorDisputeDate: z.string().optional(),
+        craResponseDate: z.string().optional(),
+        reportDate: z.string().optional(),
       });
       
       const validatedData = generateLetterSchema.parse(req.body);
-      const { bureau, violationIds } = validatedData;
+      const { bureau, violationIds, round, recipientType, recipientName, priorDisputeDate, craResponseDate, reportDate } = validatedData;
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -505,38 +511,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No violations selected" });
       }
 
-      // Generate letter using AI
-      const clientInfo = {
+      const userInfo = {
         name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Client',
-        address: "123 Main Street", // You'd get this from user profile
+        addressLine1: "123 Main Street",
         city: "Anytown",
         state: "FL",
         zip: "32801",
-        dob: "01/01/1990", // You'd get this from user profile
-        ssnLast4: "1234" // You'd get this from user profile
+        phone: "(555) 123-4567",
+        email: user.email,
+        dob: "01/01/1990",
+        ssnLast4: "1234"
       };
 
-      const { letterContent, pdfBuffer } = await letterGeneratorService.generateDisputeLetterPDF(
-        selectedViolations.map(v => ({
-          accountName: v.accountName,
-          accountNumber: v.accountNumber || undefined,
-          bureau: v.bureau,
-          violationType: v.violationType,
-          description: v.description,
-          statute: v.statute,
-          severity: v.severity
-        })),
-        bureau,
-        clientInfo
-      );
+      const { generateRoundBasedLetter, getBureauAddress } = await import('./services/roundLetterTemplates');
+      
+      let letterContent: string;
+      
+      if (recipientType === 'BUREAU') {
+        letterContent = generateRoundBasedLetter({
+          round: round as 1 | 2 | 3,
+          userInfo,
+          bureauAddress: getBureauAddress(bureau),
+          violations: selectedViolations.map(v => ({
+            creditorName: v.accountName,
+            accountNumber: v.accountNumber || undefined,
+            issue: v.description,
+            requestedAction: `Verify ${v.statute} compliance and correct or delete if unverifiable.`
+          })),
+          priorDisputeDate,
+          craResponseDate,
+          reportDate
+        });
+      } else {
+        const { generateCollectorValidationLetter } = await import('./services/collectorLetterTemplates');
+        
+        letterContent = generateCollectorValidationLetter({
+          userInfo,
+          collectorInfo: {
+            collectorName: recipientName || 'Collection Agency',
+            addressLine1: '[Address to be filled]',
+            city: '',
+            state: '',
+            zip: ''
+          },
+          debtInfo: {
+            accountNumber: selectedViolations[0]?.accountNumber,
+            originalCreditorName: selectedViolations[0]?.accountName,
+            bureausReportedTo: [bureau]
+          }
+        });
+      }
 
-      // Save letter to database
+      let letterType = "INITIAL";
+      if (round === 2) letterType = "FOLLOW_UP";
+      if (round === 3) letterType = "CFPB";
+      
+      let pdfBuffer = Buffer.from("Sample PDF content");
+
       const disputeLetter = await storage.createDisputeLetter({
         userId,
         bureau,
-        letterType: "INITIAL",
+        letterType,
+        round,
+        recipientType,
+        recipientName: recipientName || undefined,
         content: letterContent,
-        pdfUrl: `/api/dispute-letters/${bureau.toLowerCase()}-dispute.pdf`, // Simplified URL
+        pdfUrl: `/api/dispute-letters/${bureau.toLowerCase()}-dispute-round${round}.pdf`,
         status: "GENERATED"
       });
 
@@ -552,11 +592,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               zip: "33601"
             },
             addressTo: {
-              name: clientInfo.name,
-              address1: clientInfo.address,
-              city: clientInfo.city,
-              state: clientInfo.state,
-              zip: clientInfo.zip
+              name: userInfo.name,
+              address1: userInfo.addressLine1,
+              city: userInfo.city,
+              state: userInfo.state,
+              zip: userInfo.zip
             },
             document: pdfBuffer.toString('base64')
           });
