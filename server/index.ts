@@ -14,6 +14,11 @@ import { registerOpenApi } from "./openapi";
 
 const app = express();
 
+// Trust proxy in production for proper HTTPS/session handling
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
 // Webhooks MUST be registered BEFORE express.json() 
 // so they can receive raw body for signature verification
 registerStripeWebhook(app);

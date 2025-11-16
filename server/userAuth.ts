@@ -17,6 +17,8 @@ declare module "express-session" {
 }
 
 export function getUserSession() {
+  const isProduction = process.env.NODE_ENV === "production";
+  
   return session({
     name: "connect.sid",
     store: new PgSession({
@@ -28,11 +30,13 @@ export function getUserSession() {
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000,
       sameSite: "lax",
+      path: "/",
     },
+    proxy: isProduction, // Trust proxy in production for proper HTTPS detection
   });
 }
 
