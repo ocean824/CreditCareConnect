@@ -3,12 +3,37 @@ import bcrypt from "bcrypt";
 import { db } from "./db";
 import { userCredentials, users } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import session from "express-session";
+import ConnectPgSimple from "connect-pg-simple";
+import { pool } from "./db";
+
+const PgSession = ConnectPgSimple(session);
 
 declare module "express-session" {
   interface SessionData {
     userId?: string;
     userEmail?: string;
   }
+}
+
+export function getUserSession() {
+  return session({
+    name: "connect.sid",
+    store: new PgSession({
+      pool,
+      tableName: "sessions",
+      createTableIfMissing: false,
+    }),
+    secret: process.env.SESSION_SECRET || "user-secret-change-in-production",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: "lax",
+    },
+  });
 }
 
 const userAuthRouter = Router();
