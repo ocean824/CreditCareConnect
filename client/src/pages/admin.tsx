@@ -19,18 +19,26 @@ import {
   AlertTriangle,
   Activity
 } from "lucide-react";
+import type { User } from "@shared/schema";
+
+interface AdminStats {
+  totalUsers: number;
+  proSubscribers: number;
+  monthlyRevenue: number;
+  lettersSent: number;
+}
 
 export default function Admin() {
   const { user, isLoading } = useAuth();
 
-  const { data: adminStats } = useQuery({
+  const { data: adminStats } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
-    enabled: !!user?.email?.includes('admin'),
+    enabled: user?.role === 'admin',
   });
 
-  const { data: allUsers } = useQuery({
+  const { data: allUsers } = useQuery<User[]>({
     queryKey: ["/api/admin/users"],
-    enabled: !!user?.email?.includes('admin'),
+    enabled: user?.role === 'admin',
   });
 
   if (isLoading) {
@@ -41,8 +49,8 @@ export default function Admin() {
     );
   }
 
-  // Check admin access
-  if (!user?.email?.includes('admin')) {
+  // Check admin access - verify role from backend
+  if (user && user.role !== 'admin') {
     return (
       <div className="min-h-screen bg-background">
         <Navigation 

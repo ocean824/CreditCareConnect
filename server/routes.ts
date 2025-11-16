@@ -3,13 +3,17 @@ import { createServer, type Server } from "http";
 import Stripe from "stripe";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+import { rateLimit } from "./middleware/rateLimit";
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: "2025-08-27.basil",
+    })
+  : null;
+
+if (!stripe) {
+  console.warn('⚠️  STRIPE_SECRET_KEY not configured - payment features will be disabled');
 }
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2025-08-27.basil",
-});
 import { click2mailService } from "./services/click2mail";
 import { letterGeneratorService } from "./services/letterGenerator";
 import { notificationService } from "./services/notificationService";
@@ -18,6 +22,7 @@ import crypto from "crypto";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { z } from "zod";
 import { mintActionToken, verifyAndConsumeToken } from "./oneTimeToken";
 import { clientResponses, mailBatches, users, deliveryEvents } from "@shared/schema";
 import { db } from "./db";
@@ -50,13 +55,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch('/api/auth/profile', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { firstName, lastName } = req.body;
+      
+      // Validate input
+      const updateProfileSchema = z.object({
+        firstName: z.string().min(1).max(100).optional(),
+        lastName: z.string().min(1).max(100).optional(),
+      });
+      
+      const validatedData = updateProfileSchema.parse(req.body);
+      const { firstName, lastName } = validatedData;
 
       await storage.updateUserProfile(userId, { firstName, lastName });
       const updatedUser = await storage.getUser(userId);
       
       res.json(updatedUser);
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid input", errors: error.errors });
+      }
       console.error("Error updating profile:", error);
       res.status(500).json({ message: "Failed to update profile" });
     }
@@ -83,8 +99,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Stripe checkout session creation
-  app.post('/api/create-checkout-session', isAuthenticated, async (req: any, res) => {
+  app.post('/api/create-checkout-session', 
+    rateLimit({ windowMs: 60_000, max: 5, namespace: 'stripe-checkout' }),
+    isAuthenticated, 
+    async (req: any, res) => {
     try {
+      if (!stripe) {
+        return res.status(503).json({ error: "Payment system is not configured. Please contact support." });
+      }
+      
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
       
@@ -143,7 +166,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Credit Report Analysis
-  app.post('/api/credit-reports/upload', isAuthenticated, async (req: any, res) => {
+  app.post('/api/credit-reports/upload', 
+    rateLimit({ windowMs: 60_000, max: 10, namespace: 'credit-upload' }),
+    isAuthenticated, 
+    async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { fileName, fileUrl, bureau } = req.body;
@@ -251,7 +277,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
-      const { bureau, violationIds } = req.body;
+      
+      // Validate input
+      const generateLetterSchema = z.object({
+        bureau: z.enum(['EQUIFAX', 'TRANSUNION', 'EXPERIAN']),
+        violationIds: z.array(z.string()).min(1, "At least one violation must be selected"),
+      });
+      
+      const validatedData = generateLetterSchema.parse(req.body);
+      const { bureau, violationIds } = validatedData;
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -558,7 +592,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     `);
   });
 
-  app.post('/notify/upload', upload.single('letter'), async (req: any, res) => {
+  app.post('/notify/upload', 
+    rateLimit({ windowMs: 60_000, max: 5, namespace: 'notify-upload' }),
+    upload.single('letter'), 
+    async (req: any, res) => {
     try {
       const token = req.body.token;
       const row = await verifyAndConsumeToken(token);
@@ -625,13 +662,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * - phone (string, optional)
    * - email (string, optional)
    */
-  app.post('/api/freeze-opt-out', isAuthenticated, async (req: any, res) => {
+  app.post('/api/freeze-opt-out', 
+    rateLimit({ windowMs: 3_600_000, max: 3, namespace: 'freeze-optout' }), // 3 requests per hour
+    isAuthenticated, 
+    async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
       }
+      
+      // Validate input
+      const freezeSchema = z.object({
+        firstName: z.string().min(1).max(100),
+        lastName: z.string().min(1).max(100),
+        address: z.string().min(1).max(200),
+        city: z.string().min(1).max(100),
+        state: z.string().length(2, "State must be a 2-letter code"),
+        zip: z.string().regex(/^\d{5}$/, "ZIP must be 5 digits"),
+        ssn: z.string().regex(/^\d{3}-?\d{2}-?\d{4}$/, "Invalid SSN format").optional(),
+        dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date of birth must be YYYY-MM-DD").optional(),
+        phone: z.string().min(10).max(15).optional(),
+        email: z.string().email().optional(),
+      });
+      
+      const validatedData = freezeSchema.parse(req.body);
       const {
         firstName,
         lastName,
@@ -643,10 +699,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dob,
         phone,
         email,
-      } = req.body || {};
-      if (!firstName || !lastName || !address || !city || !state || !zip) {
-        return res.status(400).json({ message: 'Missing required fields' });
-      }
+      } = validatedData;
       const info: FreezeUserInfo = {
         firstName,
         lastName,
