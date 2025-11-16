@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export default function UserLogin() {
   const [, setLocation] = useLocation();
@@ -42,8 +42,13 @@ export default function UserLogin() {
         description: `Welcome back, ${data.user.firstName || data.user.email}!`,
       });
 
-      // Force page reload to refresh auth state
-      window.location.href = "/dashboard";
+      // Invalidate auth query to refresh user state, then navigate
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      
+      // Small delay to ensure query cache is updated
+      setTimeout(() => {
+        window.location.href = "/dashboard";
+      }, 100);
     } catch (error: any) {
       toast({
         title: "Login Failed",
