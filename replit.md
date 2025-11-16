@@ -6,6 +6,16 @@ Personal Credit Pros is a comprehensive credit repair automation platform that l
 
 The system is built as a full-stack web application using React frontend with TypeScript, Express/FastAPI backend, and PostgreSQL database with Drizzle ORM. It integrates with multiple third-party services for payment processing (Stripe), mail delivery (Click2Mail), notifications (Twilio, Gmail), and AI-powered document analysis.
 
+## Recent Updates (November 16, 2025)
+
+**Advanced Credit Analysis Engine Integration:**
+- Integrated comprehensive rules-based violation detection engine with 6 specialized rule modules (balances, status, timeline, collections, identity, disputes)
+- Added AI-powered dispute letter generator for both credit bureaus and collection agencies
+- Created new database tables: `analysis_runs`, `issues`, `ai_issue_explanations`, `account_summaries`
+- Extended storage layer with methods for advanced analysis persistence
+- Integrated rules engine into credit report upload workflow with backwards compatibility
+- Configured graceful degradation when OpenAI API key is not available (server no longer crashes)
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
