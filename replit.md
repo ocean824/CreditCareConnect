@@ -1,242 +1,36 @@
 # Personal Credit Pros - AI-Powered Credit Repair Platform
 
 ## Overview
-
-Personal Credit Pros is a comprehensive credit repair automation platform that leverages AI to analyze credit reports, identify FCRA and Metro2 violations, generate dispute letters, and manage the entire dispute lifecycle. The platform offers both DIY and Done-For-You service tiers with automated mailing, CRM integration, and client communication features.
-
-The system is built as a full-stack web application using React frontend with TypeScript, Express/FastAPI backend, and PostgreSQL database with Drizzle ORM. It integrates with multiple third-party services for payment processing (Stripe), mail delivery (Click2Mail), notifications (Twilio, Gmail), and AI-powered document analysis.
-
-## Recent Updates (November 16, 2025)
-
-**Advanced Credit Analysis Engine Integration:**
-- Integrated comprehensive rules-based violation detection engine with 6 specialized rule modules (balances, status, timeline, collections, identity, disputes)
-- Added AI-powered dispute letter generator for both credit bureaus and collection agencies
-- Created new database tables: `analysis_runs`, `issues`, `ai_issue_explanations`, `account_summaries`
-- Extended storage layer with methods for advanced analysis persistence
-- Integrated rules engine into credit report upload workflow with backwards compatibility
-- Configured graceful degradation when OpenAI API key is not available (server no longer crashes)
-
-**Round 1/2/3 Dispute Letter System Implementation:**
-- Enhanced disputeLetters table schema with `round` (1-3), `recipientType` (BUREAU/COLLECTOR), and `recipientName` fields
-- Implemented sophisticated Round 1/2/3 escalation templates matching PRD specifications:
-  - **Round 1**: Professional reinvestigation request citing FCRA § 611(a)(1)(A)
-  - **Round 2**: Escalated follow-up with 30-day deadline reminder and prior dispute reference
-  - **Round 3**: Final notice threatening CFPB complaint with regulatory language
-- Created FDCPA-compliant collection agency validation letter templates per PRD requirements
-- Updated `/api/dispute-letters/generate` endpoint to accept `round`, `recipientType`, and `recipientName` parameters
-- Database migration applied via `npm run db:push` - production schema updated
-- Backwards compatibility maintained: defaults to Round 1 bureau letters if round not specified
-- Fixed Click2Mail integration to properly use user address data for automated mailing
-
-**File Upload and Analysis System Fix (Critical Production Fix):**
-- Fixed credit report upload flow that was preventing analysis results from displaying
-- Implemented proper multipart file upload endpoint `/api/upload-file` with Multer disk storage
-- Configured Multer to preserve file extensions (saves as `${uuid}.pdf` instead of hash-only filenames)
-- Updated frontend to upload actual files via FormData instead of mock URLs
-- Fixed analysis code file path handling to properly detect and process locally uploaded files
-- Enhanced remote URL handling to extract extensions from pathname (avoiding query parameter issues)
-- OpenAI API key now configured - AI-powered credit report parsing operational
-- Complete end-to-end flow now functional: upload → OCR → AI parsing → rules engine → violation detection → results display
+Personal Credit Pros is an AI-driven credit repair automation platform designed to analyze credit reports, identify FCRA and Metro2 violations, generate dispute letters, and manage the entire dispute lifecycle. It offers both DIY and Done-For-You service tiers, incorporating automated mailing, CRM integration, and client communication. The platform is a full-stack web application utilizing React, TypeScript, Express, PostgreSQL, and Drizzle ORM, integrating with various third-party services for payments, mail delivery, notifications, and AI-powered document analysis.
 
 ## User Preferences
-
 Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
 ### Frontend Architecture
-
-**Framework**: React with TypeScript and Vite build system
-
-**UI Components**: Radix UI component library with shadcn/ui styling framework using Tailwind CSS with custom design tokens for consistent theming
-
-**State Management**: TanStack Query (React Query) for server state management with optimistic updates and automatic cache invalidation
-
-**Routing**: Wouter for lightweight client-side routing with role-based access control
-
-**User Interface Components**:
-- OnboardingModal - First-time user welcome with feature overview (localStorage-based persistence)
-- PrintPreviewModal - Letter preview with print/download/Click2Mail actions
-- DocumentHistoryPanel - Sliding sidebar for tracking uploaded credit reports
-- PRDViewerPanel - Tabbed documentation viewer for platform features
-- UserProfile Page - Account settings, saved documents, and subscription tier management
-
-**Key Design Decisions**:
-- Monorepo structure with shared schema types between client and server (`@shared` alias)
-- Component-based architecture with reusable UI primitives
-- Responsive design with mobile-first approach using Tailwind breakpoints
-- Real-time updates through React Query's automatic refetching
+The frontend is built with React and TypeScript, using Vite. It employs Radix UI and shadcn/ui with Tailwind CSS for styling, and TanStack Query for state management with optimistic updates. Wouter handles client-side routing with role-based access control. Key components include `OnboardingModal`, `PrintPreviewModal`, `DocumentHistoryPanel`, `PRDViewerPanel`, and `UserProfile` page. The design emphasizes a monorepo structure, component-based architecture, responsive design, and real-time updates.
 
 ### Backend Architecture
-
-**Framework**: Express.js with TypeScript on Node.js runtime
-
-**API Design**: RESTful API with JSON payloads and standardized error handling
-
-**Authentication**: 
-- **User Authentication**: Email/password-based authentication with bcrypt password hashing (10 rounds) and session management
-- **Admin Authentication**: Separate password-based authentication with dedicated admin session cookie
-- Session storage: PostgreSQL-backed session store for both user and admin sessions
-
-**Authorization**: 
-- Role-based access control (RBAC) with `user` and `admin` roles enforced via middleware guards
-- Subscription-gating: Users must have active subscription (`subscriptionStatus === 'active'`) to access platform features
-- Middleware: `requireAuth` (authentication), `requireActiveSubscription` (subscription check), `adminOnly` (admin access)
-- Special access: jarred@anunlimitedllc.com has free enterprise-level access with admin privileges
-
-**User Authentication API Endpoints**:
-- `POST /api/user/register` - Create new user account with email/password
-- `POST /api/user/login` - Authenticate user with email/password
-- `POST /api/user/logout` - End user session
-- `GET /api/user/check` - Check user authentication status
-- `GET /api/auth/user` - Retrieve authenticated user profile (requires auth)
-- `PATCH /api/auth/profile` - Update user first name and last name (requires auth)
-
-**Admin Authentication API Endpoints**:
-- `POST /api/admin/login` - Admin password-based authentication
-- `POST /api/admin/logout` - Admin session termination with regeneration
-- `GET /api/admin/check` - Verify admin authentication status
-- `GET /api/admin/stats` - Aggregate platform statistics (admin-only)
-
-**Protected User API Endpoints** (require active subscription):
-- `POST /api/credit-reports/upload` - Upload credit report for analysis
-- `GET /api/credit-reports` - List user's credit reports
-- `GET /api/violations` - List detected violations
-- `POST /api/dispute-letters/generate` - Generate dispute letter with AI
-- `GET /api/dispute-letters` - List user's dispute letters
-- `GET /api/dispute-letters/:id/download` - Download letter PDF
-
-**Key Design Decisions**:
-- Modular service layer separating business logic from route handlers
-- Separate admin routes with strict access control (`adminRouter`)
-- Session management using PostgreSQL-backed session store for persistence
-- Environment-based configuration for production vs development modes
+The backend is an Express.js application with TypeScript on Node.js, providing a RESTful API with JSON payloads. It features email/password-based user authentication and a separate admin authentication, both using bcrypt and PostgreSQL-backed session stores. Role-based access control (RBAC) with `user` and `admin` roles, along with subscription-gating, ensures secure access. Key API endpoints manage user and admin authentication, profile updates, and protected operations for credit report uploads, violation listings, and dispute letter generation. The architecture promotes modularity, strict access control, and environment-based configuration.
 
 ### Data Storage
-
-**Primary Database**: PostgreSQL via Neon serverless with WebSocket support for scalability
-
-**ORM**: Drizzle ORM for type-safe database queries with schema-first design
-
-**Schema Design**:
-- `users` - Core user profiles with plan tier, subscription status, and payment identifiers
-- `userCredentials` - Password-hashed user login credentials (bcrypt, 10 rounds)
-- `adminCredentials` - Password-hashed admin login credentials (bcrypt, 10 rounds)
-- `sessions` - PostgreSQL session storage for both user and admin authentication
-- `creditReports` - Uploaded reports with analysis status and results
-- `violations` - Detected FCRA/Metro2 violations linked to reports
-- `disputeLetters` - Generated dispute letters with mailing status
-- `mailBatches` - Tracking for physical mail delivery via Click2Mail
-- `deliveryEvents` - Delivery status updates and tracking
-- `clientResponses` - Client feedback and bureau response uploads
-- `actionTokens` - One-time secure tokens for email/SMS action links
-- `adminAuditLogs` - Complete audit trail of admin actions
-
-**File Storage**: Local filesystem with configurable directory (`FILES_DIR` environment variable) for uploaded documents and generated PDFs
-
-**Key Design Decisions**:
-- UUID primary keys for distributed scalability
-- JSONB fields for flexible storage of analysis results and metadata
-- Timestamp tracking on all records for audit compliance
-- Separate sessions table for authentication persistence
+The primary database is PostgreSQL via Neon, leveraging Drizzle ORM for type-safe queries. The schema includes tables for `users`, `userCredentials`, `adminCredentials`, `sessions`, `creditReports`, `violations`, `disputeLetters`, `mailBatches`, `deliveryEvents`, `clientResponses`, `actionTokens`, and `adminAuditLogs`. File storage for uploaded documents and generated PDFs uses the local filesystem. Design decisions include UUID primary keys, JSONB fields for metadata, and timestamp tracking for audit compliance.
 
 ### AI & Document Processing
-
-**AI Provider**: OpenAI GPT-5 (latest model) for credit report analysis, violation detection, and dispute letter generation
-
-**OCR Processing**: Tesseract.js with pdf2pic for extracting text from PDF and image uploads
-
-**Local AI Fallback**: Ollama integration for on-premise AI processing when available
-
-**Credit Report Types Supported**:
-- **EQUIFAX** - Single bureau reports from Equifax
-- **TRANSUNION** - Single bureau reports from TransUnion
-- **EXPERIAN** - Single bureau reports from Experian
-- **TRI-MERGE** - Combined reports containing data from all three bureaus
-  - When analyzing TRI-Merge reports, AI extracts violations and tags each with the specific bureau (EQUIFAX, TRANSUNION, or EXPERIAN)
-  - Violations are NOT tagged as "TRI-MERGE" - each violation receives the actual bureau name
-  - Letter generation remains bureau-specific (one letter per bureau)
-
-**Key Design Decisions**:
-- Structured prompts for consistent violation detection across FCRA statutes
-- JSON response format from AI for reliable parsing
-- Severity classification (HIGH/MEDIUM/LOW) for prioritization
-- Case law citation integration for legal compliance
-- Bureau-aware analysis for TRI-Merge reports
-
-### External Dependencies
-
-**Payment Processing**:
-- Stripe integration (React Stripe.js) for subscription management and payment processing
-- Optional integration with graceful degradation when API key is missing
-- Environment-specific test vs production modes
-
-**Mail Delivery**:
-- Click2Mail REST API for automated physical letter mailing
-- First-class mail with full-color printing support
-- Tracking number generation and delivery status webhooks
-
-**Communication Services**:
-- Twilio (planned) for SMS notifications and reminders
-- Gmail SMTP or API for email notifications
-- Automated day-34 follow-up sweeps via cron scheduler
-
-**CRM Integration**:
-- Credit Repair Cloud (CRC) API integration for syncing client data
-- Automated dispute tracking and status updates
-
-**Development Tools**:
-- Replit-specific plugins for runtime error overlay and dev tooling
-- Cartographer and dev banner for Replit environment integration
-
-**Credit Freeze Automation**:
-- Puppeteer-based browser automation for submitting credit freeze and opt-out requests
-- Supports LexisNexis (freeze + report request), Cotality, Innovis, OptOutPrescreen, and SageStream
-- Headless Chromium with Replit-safe flags (--no-sandbox, --disable-setuid-sandbox)
-- Asynchronous execution to avoid blocking API responses
-- Graceful handling of CAPTCHAs and verification challenges
+The platform utilizes OpenAI GPT-5 for credit report analysis, violation detection, and dispute letter generation. OCR processing is handled by Tesseract.js with pdf2pic for text extraction from PDFs. Supported credit report types include single-bureau (EQUIFAX, TRANSUNION, EXPERIAN) and TRI-MERGE reports, with AI tagging violations to specific bureaus. The system uses structured prompts for consistent violation detection, JSON response formats, and severity classification.
 
 ### Security & Compliance
-
-**Authentication Security**:
-- User authentication: Email/password-based authentication with bcrypt hashing (10 rounds)
-- Admin authentication: Separate password-based authentication with bcrypt hashing (10 rounds)
-- Dual session system: Separate cookies for user (`connect.sid`) and admin (`admin_session`)
-- Session regeneration on login/logout prevents fixation attacks
-- HTTPS-only cookie sessions with configurable TTL (7 days default)
-- CSRF protection via same-site cookie policies
-
-**Data Protection**:
-- PII redaction for internal storage of credit reports
-- Secure one-time action tokens with expiration and consumption tracking
-- Admin audit logging for all sensitive operations
-
-**Payment Security**:
-- PCI compliance through Stripe hosted payment pages
-- No direct credit card handling in application code
-- Subscription ID storage for billing management without sensitive data
+Security measures include bcrypt hashing for user and admin passwords, dual session management with separate HTTPS-only cookies, and CSRF protection. Data protection involves PII redaction and secure one-time action tokens. Payment security is achieved through Stripe's PCI-compliant hosted payment pages.
 
 ### Automation & Workflows
+Scheduled tasks include hourly sweeps for follow-up notifications and letter generation queue processing. A multi-channel notification system (email, SMS) uses template-based messaging. Admin capabilities encompass a system dashboard for platform statistics, bulk operations, user management, and case tracking, all with an audit trail.
 
-**Scheduled Tasks**:
-- Hourly sweep for 34-day follow-up notifications
-- Automated status checks and client reminders
-- Letter generation queue processing
+## External Dependencies
 
-**Notification System**:
-- Multi-channel delivery (email, SMS)
-- Template-based messaging with dynamic content
-- Secure one-time action links for client responses
-
-**Admin Capabilities**:
-- Password-based admin authentication (separate from user email/password sessions)
-- Admin credentials: username='admin', password='CCPros10miL$$', email='admin@personalcreditpros.com'
-- Separate admin session cookie (`admin_session`) prevents cross-session interference
-- Admin System Dashboard (`/admin/system`) - aggregate platform statistics:
-  - Total users, active subscriptions, credit reports analyzed
-  - Dispute letters generated, pending mail batches, violations detected
-  - Real-time statistics fetched from dedicated API endpoint
-- Bulk operations for letter generation and mailing
-- User management with role assignment
-- Case tracking and response processing
-- Complete audit trail with actor tracking
+**Payment Processing**: Stripe for subscription management and payment processing.
+**Mail Delivery**: Click2Mail REST API for automated physical letter mailing.
+**Communication Services**: Twilio (planned) for SMS notifications and Gmail SMTP/API for emails.
+**CRM Integration**: Credit Repair Cloud (CRC) API for syncing client data.
+**Credit Freeze Automation**: Puppeteer-based browser automation for credit freeze and opt-out requests (LexisNexis, Cotality, Innovis, OptOutPrescreen, SageStream).
+**Development Tools**: Replit-specific plugins, Cartographer, and dev banner.
