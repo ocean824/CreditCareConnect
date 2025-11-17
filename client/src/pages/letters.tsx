@@ -21,6 +21,7 @@ import {
   Scale,
   Gavel
 } from "lucide-react";
+import type { DisputeLetter, Violation } from "@shared/schema";
 
 export default function Letters() {
   const { user, isLoading } = useAuth();
@@ -30,12 +31,12 @@ export default function Letters() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: disputeLetters } = useQuery({
+  const { data: disputeLetters } = useQuery<DisputeLetter[]>({
     queryKey: ["/api/dispute-letters"],
     enabled: !!user,
   });
 
-  const { data: violations } = useQuery({
+  const { data: violations } = useQuery<Violation[]>({
     queryKey: ["/api/violations"],
     enabled: !!user,
   });
@@ -211,7 +212,7 @@ export default function Letters() {
         </div>
 
         {/* Letter Preview Section */}
-        {selectedLetter && (
+        {selectedLetter && disputeLetters && (
           <Card className="mb-8" data-testid="letter-preview">
             <CardHeader>
               <CardTitle>Letter Preview</CardTitle>
@@ -221,7 +222,7 @@ export default function Letters() {
             </CardHeader>
             <CardContent>
               <div className="bg-white border border-gray-300 rounded-lg p-6 font-mono text-sm leading-relaxed max-h-96 overflow-y-auto whitespace-pre-wrap">
-                {selectedLetter.content || "No content available"}
+                {disputeLetters.find(l => l.id === selectedLetter)?.content || "No content available"}
               </div>
             </CardContent>
           </Card>
