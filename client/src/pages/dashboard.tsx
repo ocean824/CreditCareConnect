@@ -428,12 +428,9 @@ export default function Dashboard() {
                   </div>
                   <div className="p-4 bg-muted/50 rounded-lg">
                     <h4 className="font-medium mb-2">Case Law Citations:</h4>
-                    <ul className="text-sm text-muted-foreground space-y-1">
-                      <li>• Maxey v. Trans Union (2016)</li>
-                      <li>• Johnson v. MBNA (2005)</li>
-                      <li>• Phillips v. Grendahl (2000)</li>
-                      <li>• Auto-fetched relevant cases</li>
-                    </ul>
+                    <p className="text-sm text-muted-foreground">
+                      Case law citations will be automatically included when you generate the CFPB packet based on your specific violations and legal grounds.
+                    </p>
                   </div>
                 </div>
               </CardContent>
