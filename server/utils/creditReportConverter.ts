@@ -32,15 +32,10 @@ export function convertToCreditReport(params: {
 
   const creditReport: CreditReport = {
     pulledAt: new Date().toISOString(),
-    provider: "Upload", // or parse from report
+    provider: "Upload",
     consumer: {
-      fullName: "Consumer Name", // Should be extracted from report
-      addresses: [{
-        line1: "Address Line 1",
-        city: "City",
-        state: "State",
-        postalCode: "00000"
-      }],
+      fullName: "",  // Will be extracted by AI parser
+      addresses: [],
     },
     bureaus: [bureauReport],
   };
@@ -92,13 +87,8 @@ export function convertTriMergeToCreditReport(params: {
     pulledAt: new Date().toISOString(),
     provider: "TRI-MERGE Upload",
     consumer: {
-      fullName: "Consumer Name",
-      addresses: [{
-        line1: "Address Line 1",
-        city: "City",
-        state: "State",
-        postalCode: "00000"
-      }],
+      fullName: "",  // Will be extracted by AI parser
+      addresses: [],
     },
     bureaus: [
       {
@@ -126,74 +116,4 @@ export function convertTriMergeToCreditReport(params: {
   };
 
   return creditReport;
-}
-
-/**
- * Creates a sample credit report with realistic violations for testing
- */
-export function createSampleCreditReport(): CreditReport {
-  return {
-    pulledAt: new Date().toISOString(),
-    provider: "Sample",
-    consumer: {
-      fullName: "John Doe",
-      ssnLast4: "1234",
-      dob: "1980-01-15",
-      addresses: [{
-        line1: "123 Main Street",
-        city: "Naples",
-        state: "FL",
-        postalCode: "34117"
-      }],
-    },
-    bureaus: [
-      {
-        bureau: "Equifax",
-        tradelines: [
-          {
-            internalId: "tradeline_1",
-            creditorName: "Capital One",
-            type: "CreditCard",
-            status: "ChargeOff",
-            balance: 1500, // VIOLATION: Charged-off account shouldn't have balance
-            highCreditLimit: 2000,
-            creditLimit: 2000,
-            openedDate: "2015-06-01",
-            lastUpdatedDate: "2023-01-15",
-            // Missing dateOfFirstDelinquency - VIOLATION
-          },
-          {
-            internalId: "tradeline_2",
-            creditorName: "Chase Bank",
-            type: "CreditCard",
-            status: "Open",
-            balance: 500,
-            creditLimit: 5000,
-            openedDate: "2018-03-15",
-            lastUpdatedDate: "2024-11-01",
-          },
-        ],
-        collections: [
-          {
-            internalId: "collection_1",
-            collectorName: "LVNV Funding",
-            originalCreditorName: "Discover Card",
-            balance: 800,
-            status: "Open",
-            openedDate: "2016-08-01", // VIOLATION: Collection older than 7 years
-          },
-        ],
-        publicRecords: [],
-        inquiries: [
-          {
-            internalId: "inquiry_1",
-            inquirerName: "Random Inquiry",
-            date: "2024-10-15",
-            type: "Hard",
-            // POTENTIAL VIOLATION: Unauthorized inquiry
-          },
-        ],
-      },
-    ],
-  };
 }

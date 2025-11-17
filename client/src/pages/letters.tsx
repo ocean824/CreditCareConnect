@@ -220,55 +220,8 @@ export default function Letters() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="bg-white border border-gray-300 rounded-lg p-6 font-mono text-sm leading-relaxed max-h-96 overflow-y-auto">
-                <div className="mb-4">
-                  <p><strong>{user?.firstName} {user?.lastName}</strong></p>
-                  <p>123 Main Street</p>
-                  <p>Anytown, FL 32801</p>
-                  <p>DOB: 01/01/1990 | SSN: XXX-XX-1234</p>
-                  <p>Date: {new Date().toLocaleDateString()}</p>
-                </div>
-
-                <div className="mb-4">
-                  <p><strong>Equifax Information Services LLC</strong></p>
-                  <p>P.O. Box 740256</p>
-                  <p>Atlanta, GA 30374</p>
-                </div>
-
-                <div className="mb-4">
-                  <p><strong>RE: Request for Reinvestigation under FCRA</strong></p>
-                </div>
-
-                <div className="mb-4">
-                  <p>Dear Sir/Madam,</p>
-                </div>
-
-                <div className="mb-4">
-                  <p>I am disputing the accuracy of the following tradelines appearing on my credit report:</p>
-                </div>
-
-                {violations?.slice(0, 2).map((violation, index) => (
-                  <div key={violation.id} className="mb-4 bg-gray-50 p-3 rounded border-l-4 border-red-500">
-                    <p><strong>Account:</strong> {violation.accountName}</p>
-                    <p><strong>Issue:</strong> {violation.violationType}</p>
-                    <p><strong>Statutory Basis:</strong> {violation.statute}</p>
-                    <p><strong>Details:</strong> {violation.description}</p>
-                  </div>
-                ))}
-
-                <div className="mb-4">
-                  <p>Under the Fair Credit Reporting Act, you are required to conduct a reasonable reinvestigation and either verify the accuracy of this information or delete it from my credit file within 30 days of receipt of this dispute.</p>
-                </div>
-
-                <div className="mb-4">
-                  <p>Please provide written results of your investigation as required under 15 U.S.C. § 1681i(a)(7).</p>
-                </div>
-
-                <div>
-                  <p>Sincerely,</p>
-                  <br />
-                  <p><strong>{user?.firstName} {user?.lastName}</strong></p>
-                </div>
+              <div className="bg-white border border-gray-300 rounded-lg p-6 font-mono text-sm leading-relaxed max-h-96 overflow-y-auto whitespace-pre-wrap">
+                {selectedLetter.content || "No content available"}
               </div>
             </CardContent>
           </Card>
@@ -328,14 +281,9 @@ export default function Letters() {
                   <Scale className="w-4 h-4 mr-2" />
                   Case Law Citations:
                 </h4>
-                <ul className="text-sm text-muted-foreground space-y-1">
-                  <li>• Maxey v. Trans Union (2016)</li>
-                  <li>• Johnson v. MBNA (2005)</li>
-                  <li>• Phillips v. Grendahl (2000)</li>
-                  <li>• Cushman v. TransUnion Corp.</li>
-                  <li>• Auto-fetched relevant cases</li>
-                  <li>• Circuit court decisions</li>
-                </ul>
+                <p className="text-sm text-muted-foreground">
+                  Case law citations will be automatically included when you generate the CFPB packet based on your specific violations and legal grounds.
+                </p>
               </div>
             </div>
             

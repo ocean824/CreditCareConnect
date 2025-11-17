@@ -36,7 +36,6 @@ import {
 import adminAuthRouter, { getAdminSession } from "./adminAuth";
 import userAuthRouter, { requireAuth, requireActiveSubscription, getUserSession } from "./userAuth";
 import { analyzeWithRulesEngine } from "./services/advancedCreditAnalysis";
-import { createSampleCreditReport } from "./utils/creditReportConverter";
 import { parseCreditReportText } from "./services/creditReportParser";
 import { nanoid } from "nanoid";
 
@@ -736,17 +735,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Letter not found" });
       }
 
-      // In a real implementation, you'd retrieve the actual PDF
+      // Check if PDF URL exists
+      if (!letter.pdfUrl) {
+        return res.status(404).json({ message: "PDF not available for this letter" });
+      }
+
+      // Read the PDF file from disk
+      const pdfPath = path.join(process.cwd(), letter.pdfUrl);
+      if (!fs.existsSync(pdfPath)) {
+        return res.status(404).json({ message: "PDF file not found" });
+      }
+
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${letter.bureau}-dispute-letter.pdf"`);
-      res.send(Buffer.from("Sample PDF content"));
+      res.sendFile(pdfPath);
     } catch (error) {
       console.error("Error downloading dispute letter:", error);
       res.status(500).json({ message: "Failed to download dispute letter" });
     }
   });
 
-  // AI Chat (stubbed until OpenAI key is configured)
+  // AI Chat
   app.post('/api/chat', requireActiveSubscription, async (req: any, res) => {
     try {
       const userId = req.session.userId;
@@ -755,6 +764,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });
+      }
+
+      // Check if OpenAI API key is configured
+      if (!process.env.OPENAI_API_KEY && !process.env.OPENAI_KEY && !process.env.OPEN_AI_KEY) {
+        return res.status(503).json({ message: "AI chat service is not configured" });
       }
 
       // Get conversation history
@@ -772,8 +786,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get user's violations for context
       const violations = await storage.getViolationsByUserId(userId);
 
-      // Generate AI response (stubbed for now)
-      const aiResponse = "I'm here to help with your credit repair questions. This AI feature is currently being configured."
+      // Generate AI response using OpenAI
+      const { chatWithAI } = await import("./services/openai");
+      const aiResponse = await chatWithAI(
+        message,
+        conversationHistory,
+        user.plan || "DIY",
+        violations.map(v => ({
+          ...v,
+          accountNumber: v.accountNumber || undefined
+        }))
+      );
 
       // Update conversation
       const newMessage = { role: "user", content: message, timestamp: new Date() };
@@ -819,9 +842,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email: user.email
       };
 
-      // Generate CFPB complaint (stubbed for now)
-      const complaintText = "Sample CFPB complaint text will be generated here.";
-      const caseLawCitations = ["Sample case law citation"];
+      // Check if OpenAI API key is configured
+      if (!process.env.OPENAI_API_KEY && !process.env.OPENAI_KEY && !process.env.OPEN_AI_KEY) {
+        return res.status(503).json({ message: "CFPB complaint generation service is not configured" });
+      }
+
+      // Generate CFPB complaint using OpenAI
+      const { generateCFPBComplaint } = await import("./services/openai");
+      const { complaintText, caseLawCitations } = await generateCFPBComplaint(
+        violations.map(v => ({
+          ...v,
+          accountNumber: v.accountNumber || undefined
+        })),
+        clientInfo,
+        disputeLetters
+      );
 
       // Generate PDF packet
       const pdfBuffer = await letterGeneratorService.generateCFPBPacketPDF(

@@ -257,32 +257,24 @@ export default function Dashboard() {
             </div>
 
             {/* Analysis Results Overview */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-              <Card className="text-center">
-                <CardContent className="p-6">
-                  <div className="text-3xl font-bold text-red-500 mb-2">{totalViolations}</div>
-                  <div className="text-sm text-muted-foreground">Total Violations</div>
-                </CardContent>
-              </Card>
-              <Card className="text-center">
-                <CardContent className="p-6">
-                  <div className="text-3xl font-bold text-blue-500 mb-2">3</div>
-                  <div className="text-sm text-muted-foreground">Bureaus Affected</div>
-                </CardContent>
-              </Card>
-              <Card className="text-center">
-                <CardContent className="p-6">
-                  <div className="text-3xl font-bold text-green-500 mb-2">$12,500</div>
-                  <div className="text-sm text-muted-foreground">Potential Deletions</div>
-                </CardContent>
-              </Card>
-              <Card className="text-center">
-                <CardContent className="p-6">
-                  <div className="text-3xl font-bold text-purple-500 mb-2">90-120</div>
-                  <div className="text-sm text-muted-foreground">Est. Score Increase</div>
-                </CardContent>
-              </Card>
-            </div>
+            {violations && violations.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <Card className="text-center">
+                  <CardContent className="p-6">
+                    <div className="text-3xl font-bold text-red-500 mb-2">{totalViolations}</div>
+                    <div className="text-sm text-muted-foreground">Total Violations</div>
+                  </CardContent>
+                </Card>
+                <Card className="text-center">
+                  <CardContent className="p-6">
+                    <div className="text-3xl font-bold text-blue-500 mb-2">
+                      {new Set(violations.map(v => v.bureau)).size}
+                    </div>
+                    <div className="text-sm text-muted-foreground">Bureaus Affected</div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
             {/* Violations Table */}
             {violations && violations.length > 0 ? (

@@ -35,20 +35,6 @@ export default function Analysis() {
   const totalViolations = violations?.length || 0;
   const bureausAffected = new Set(violations?.map(v => v.bureau) || []).size;
   const highSeverityCount = violations?.filter(v => v.severity === "HIGH")?.length || 0;
-  
-  // Calculate estimated potential deletions based on violation count
-  // Rough estimate: $2,500-$5,000 per violation depending on severity
-  const potentialDeletions = violations?.reduce((total, v) => {
-    const value = v.severity === "HIGH" ? 5000 : v.severity === "MEDIUM" ? 3500 : 2500;
-    return total + value;
-  }, 0) || 0;
-  
-  // Calculate estimated score increase based on violations and severity
-  // Rough estimate: 10-30 points per high severity, 5-15 per medium, 2-8 per low
-  const estimatedScoreIncrease = violations?.reduce((total, v) => {
-    const points = v.severity === "HIGH" ? 20 : v.severity === "MEDIUM" ? 10 : 5;
-    return total + points;
-  }, 0) || 0;
 
   const documentHistory = creditReports?.map(report => ({
     id: report.id,
@@ -84,7 +70,7 @@ export default function Analysis() {
         </div>
 
         {/* Analysis Results Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <Card className="text-center" data-testid="stat-total-violations">
             <CardContent className="p-6">
               <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mx-auto mb-4">
@@ -102,30 +88,6 @@ export default function Analysis() {
               </div>
               <div className="text-3xl font-bold text-blue-500 mb-2">{bureausAffected}</div>
               <div className="text-sm text-muted-foreground">Bureaus Affected</div>
-            </CardContent>
-          </Card>
-          
-          <Card className="text-center" data-testid="stat-potential-deletions">
-            <CardContent className="p-6">
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                <DollarSign className="w-6 h-6 text-green-500" />
-              </div>
-              <div className="text-3xl font-bold text-green-500 mb-2">
-                {potentialDeletions > 0 ? `$${potentialDeletions.toLocaleString()}` : "$0"}
-              </div>
-              <div className="text-sm text-muted-foreground">Potential Deletions</div>
-            </CardContent>
-          </Card>
-          
-          <Card className="text-center" data-testid="stat-score-increase">
-            <CardContent className="p-6">
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                <Target className="w-6 h-6 text-purple-500" />
-              </div>
-              <div className="text-3xl font-bold text-purple-500 mb-2">
-                {estimatedScoreIncrease > 0 ? `${Math.max(estimatedScoreIncrease - 10, 0)}-${estimatedScoreIncrease + 20}` : "0"}
-              </div>
-              <div className="text-sm text-muted-foreground">Est. Score Increase</div>
             </CardContent>
           </Card>
         </div>
