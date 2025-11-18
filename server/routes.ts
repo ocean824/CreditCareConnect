@@ -794,7 +794,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         user.plan || "DIY",
         violations.map(v => ({
           ...v,
-          accountNumber: v.accountNumber || undefined
+          accountNumber: v.accountNumber || undefined,
+          severity: v.severity as "HIGH" | "MEDIUM" | "LOW"
         }))
       );
 
@@ -852,7 +853,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { complaintText, caseLawCitations } = await generateCFPBComplaint(
         violations.map(v => ({
           ...v,
-          accountNumber: v.accountNumber || undefined
+          accountNumber: v.accountNumber || undefined,
+          severity: v.severity as "HIGH" | "MEDIUM" | "LOW"
         })),
         clientInfo,
         disputeLetters
