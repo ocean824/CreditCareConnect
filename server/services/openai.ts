@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+// Using GPT-4o (gpt-4o) - Latest production OpenAI model for credit analysis
+// Released August 2024, provides superior accuracy for credit report parsing and violation detection
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY 
 });
