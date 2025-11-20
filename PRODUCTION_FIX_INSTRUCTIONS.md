@@ -84,22 +84,49 @@ ORDER BY cr.updated_at DESC;
 
 ---
 
-## STEP 4: Force Re-Analysis (If Needed)
+## STEP 4: Force Re-Analysis of Your 6 Uploaded Reports
 
-If reports are stuck in PENDING or FAILED status:
+Your 6 uploaded credit reports need to be reprocessed. Use one of these methods:
+
+### Method A: Use the Reprocess API (Recommended)
+
+For each credit report that failed to analyze, call this endpoint:
+
+```bash
+# Get your credit report IDs first
+curl -X GET https://www.personalcreditpros.com/api/credit-reports \
+  -H "Cookie: your-session-cookie"
+
+# Then reprocess each one
+curl -X POST https://www.personalcreditpros.com/api/credit-reports/{REPORT_ID}/reprocess \
+  -H "Cookie: your-session-cookie"
+```
+
+**OR** wait for the UI button (if available in your interface).
+
+### Method B: SQL + Republish
+
+Run this SQL to check report status:
 
 ```sql
--- Reset failed/stuck reports to PENDING to trigger re-analysis
+SELECT id, file_name, analysis_status, created_at
+FROM credit_reports 
+WHERE user_id = 'admin-final'
+ORDER BY created_at DESC;
+```
+
+If any show `FAILED` or `PENDING`, reset them:
+
+```sql
 UPDATE credit_reports 
-SET 
-  analysis_status = 'PENDING',
-  analysis_result = NULL,
-  updated_at = NOW()
+SET analysis_status = 'PENDING'
 WHERE user_id = 'admin-final' 
   AND analysis_status IN ('FAILED', 'PENDING');
 ```
 
-Then **republish your app** to trigger the analysis background worker.
+Then **republish your app** to deploy the reprocess endpoint.
+
+Then use Method A (API calls) to trigger reprocessing.
 
 ---
 

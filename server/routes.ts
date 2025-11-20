@@ -561,6 +561,165 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reprocess credit report (for FAILED or PENDING reports)
+  app.post('/api/credit-reports/:id/reprocess', requireActiveSubscription, async (req: any, res) => {
+    try {
+      const userId = req.session.userId;
+      const reportId = req.params.id;
+      
+      // Get the credit report
+      const reports = await storage.getCreditReportsByUserId(userId);
+      const creditReport = reports.find(r => r.id === reportId);
+      
+      if (!creditReport) {
+        return res.status(404).json({ message: "Credit report not found" });
+      }
+      
+      // Only allow reprocessing of FAILED or PENDING reports
+      if (creditReport.analysisStatus === "COMPLETED") {
+        return res.status(400).json({ message: "Report already analyzed. Upload a new report instead." });
+      }
+      
+      // Update status to PENDING
+      await storage.updateCreditReportAnalysis(creditReport.id, null, "PENDING");
+      
+      // Trigger analysis (same logic as upload endpoint)
+      setTimeout(async () => {
+        let analysisRun;
+        try {
+          analysisRun = await storage.createAnalysisRun({
+            creditReportId: creditReport.id,
+            engineVersion: "1.0.0",
+            aiModel: "gpt-4o",
+            status: "running",
+          });
+
+          console.log(`🔄 Reprocessing credit report: ${creditReport.fileName}`);
+          
+          const filesDir = process.env.FILES_DIR || "./files";
+          let filePath;
+          
+          if (!creditReport.fileUrl.startsWith('/files/')) {
+            throw new Error("Cannot reprocess remote files. File must be stored locally.");
+          }
+          
+          const localFileName = path.basename(creditReport.fileUrl);
+          const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+          filePath = path.join(filesDir, sanitizedFileName);
+          console.log(`📁 Using local file: ${filePath}`);
+          
+          if (!fs.existsSync(filePath)) {
+            throw new Error(`File not found: ${filePath}. Please re-upload the credit report.`);
+          }
+          
+          // Extract text from PDF
+          console.log(`🔍 Extracting text from ${filePath}...`);
+          const reportText = await ocrPdfOrImage(filePath);
+          console.log(`✅ Extracted ${reportText.length} characters from credit report`);
+          
+          // Parse with AI
+          console.log(`🤖 Parsing credit report with AI...`);
+          const parsedReport = await parseCreditReportText(reportText, creditReport.bureau || "EQUIFAX");
+          
+          const bureauCount = parsedReport.bureaus.length;
+          const tradelineCount = parsedReport.bureaus.reduce((sum, b) => sum + b.tradelines.length, 0);
+          const collectionCount = parsedReport.bureaus.reduce((sum, b) => sum + b.collections.length, 0);
+          console.log(`✅ Parsed: ${bureauCount} bureaus, ${tradelineCount} tradelines, ${collectionCount} collections`);
+          
+          // Run analysis
+          console.log(`🔬 Running rules engine analysis...`);
+          const analysisResult = await analyzeWithRulesEngine(parsedReport);
+          console.log(`✅ Analysis complete: ${analysisResult.issues.length} issues detected`);
+          
+          // Save issues
+          for (const issue of analysisResult.issues) {
+            await storage.createIssue({
+              runId: analysisRun.id,
+              issueId: issue.id,
+              ruleId: issue.ruleId,
+              family: issue.family,
+              category: issue.category,
+              severity: issue.severity,
+              affectedEntityType: issue.affectedEntityType,
+              affectedBureaus: issue.affectedBureaus,
+              affectedIds: issue.affectedIds,
+              statutes: issue.statutes,
+              descriptionMachine: issue.descriptionMachine,
+              explanationKey: issue.explanationKey,
+              details: issue.details as any,
+            });
+          }
+          
+          // Save AI explanations
+          for (const explanation of analysisResult.aiExplanations) {
+            await storage.createAiIssueExplanation({
+              runId: analysisRun.id,
+              issueId: explanation.issueId,
+              accountLabel: explanation.accountLabel,
+              humanSummary: explanation.humanSummary,
+              statutes: explanation.statutes,
+              disputeAngle: explanation.disputeAngle,
+              recommendedAction: explanation.recommendedAction,
+              priority: explanation.priority,
+              rawAiPayload: explanation,
+            });
+          }
+          
+          await storage.updateAnalysisRunStatus(
+            analysisRun.id,
+            "completed",
+            new Date(),
+            analysisResult.issues.length,
+            analysisResult.aiExplanations.length
+          );
+
+          // Create legacy violation records
+          const legacyAnalysis = {
+            violations: analysisResult.issues.slice(0, 10).map(issue => ({
+              accountName: (issue.details as any).accountName || "Account",
+              accountNumber: issue.affectedIds[0] || "N/A",
+              bureau: issue.affectedBureaus?.[0] || creditReport.bureau || "EQUIFAX",
+              violationType: issue.category,
+              description: issue.descriptionMachine,
+              statute: issue.statutes.join(", "),
+              severity: issue.severity,
+            })),
+            summary: analysisResult.summary,
+          };
+          
+          await storage.updateCreditReportAnalysis(creditReport.id, legacyAnalysis, "COMPLETED");
+
+          for (const violation of legacyAnalysis.violations) {
+            await storage.createViolation({
+              creditReportId: creditReport.id,
+              accountName: violation.accountName,
+              accountNumber: violation.accountNumber,
+              bureau: violation.bureau,
+              violationType: violation.violationType,
+              description: violation.description,
+              statute: violation.statute,
+              severity: violation.severity,
+              status: "IDENTIFIED"
+            });
+          }
+          
+          console.log(`✅ Reprocessing completed for ${creditReport.id}`);
+        } catch (error) {
+          console.error("❌ Error reprocessing credit report:", error);
+          if (analysisRun) {
+            await storage.updateAnalysisRunStatus(analysisRun.id, "failed");
+          }
+          await storage.updateCreditReportAnalysis(creditReport.id, null, "FAILED");
+        }
+      }, 1000);
+      
+      res.json({ message: "Reprocessing started", reportId: creditReport.id });
+    } catch (error) {
+      console.error("Error reprocessing credit report:", error);
+      res.status(500).json({ message: "Failed to reprocess credit report" });
+    }
+  });
+
   // Violations
   app.get('/api/violations', requireActiveSubscription, async (req: any, res) => {
     try {
