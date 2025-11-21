@@ -29,9 +29,7 @@ export default function Analysis() {
 
   const deleteMutation = useMutation({
     mutationFn: async (reportId: string) => {
-      return await apiRequest(`/api/credit-reports/${reportId}`, {
-        method: 'DELETE',
-      });
+      return await apiRequest('DELETE', `/api/credit-reports/${reportId}`);
     },
     onSuccess: () => {
       toast({

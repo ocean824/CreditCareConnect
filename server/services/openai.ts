@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 
-// Using GPT-4o (gpt-4o) - Latest production OpenAI model for credit analysis
-// Released August 2024, provides superior accuracy for credit report parsing and violation detection
+// Using GPT-4 Turbo (gpt-4-turbo) - Advanced reasoning model for credit analysis
+// Provides superior accuracy for credit report parsing and violation detection with advanced reasoning
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY 
 });
@@ -62,7 +62,7 @@ export async function analyzeCreditReport(reportText: string, bureau?: string): 
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",  // Using GPT-4 Turbo (latest stable model)
+      model: "gpt-4-turbo",
       messages: [
         {
           role: "system",
@@ -137,7 +137,7 @@ export async function generateDisputeLetter(
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",  // Using GPT-4 Turbo (latest stable model)
+      model: "gpt-4-turbo",
       messages: [
         {
           role: "system",
@@ -185,7 +185,7 @@ export async function chatWithAI(
     ];
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",  // Using GPT-4 Turbo (latest stable model)
+      model: "gpt-4-turbo",
       messages: messages as any,
     });
 
@@ -223,7 +223,7 @@ export async function generateCFPBComplaint(
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",  // Using GPT-4 Turbo (latest stable model)
+      model: "gpt-4-turbo",
       messages: [
         {
           role: "system",

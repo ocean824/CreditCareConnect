@@ -84,7 +84,7 @@ Return a JSON array of explanations with this structure:
 `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",  // Using GPT-4 Turbo (latest stable model)
+      model: "gpt-4-turbo",
       messages: [
         {
           role: "system",

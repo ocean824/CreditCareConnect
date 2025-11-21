@@ -284,7 +284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           analysisRun = await storage.createAnalysisRun({
             creditReportId: creditReport.id,
             engineVersion: "1.0.0",
-            aiModel: "gpt-4o",
+            aiModel: "gpt-4-turbo",
             status: "running",
           });
 
@@ -632,7 +632,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           analysisRun = await storage.createAnalysisRun({
             creditReportId: creditReport.id,
             engineVersion: "1.0.0",
-            aiModel: "gpt-4o",
+            aiModel: "gpt-4-turbo",
             status: "running",
           });
 
