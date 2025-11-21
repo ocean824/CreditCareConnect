@@ -561,6 +561,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete credit report
+  app.delete('/api/credit-reports/:id', requireActiveSubscription, async (req: any, res) => {
+    try {
+      const userId = req.session.userId;
+      const reportId = req.params.id;
+      
+      // Get the credit report to verify ownership
+      const reports = await storage.getCreditReportsByUserId(userId);
+      const creditReport = reports.find(r => r.id === reportId);
+      
+      if (!creditReport) {
+        return res.status(404).json({ message: "Credit report not found" });
+      }
+      
+      // Delete the file if it exists locally
+      if (creditReport.fileUrl.startsWith('/files/')) {
+        const localFileName = path.basename(creditReport.fileUrl);
+        const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const filesDir = process.env.FILES_DIR || "./files";
+        const filePath = path.join(filesDir, sanitizedFileName);
+        
+        try {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`🗑️  Deleted file: ${filePath}`);
+          }
+        } catch (error) {
+          console.error(`⚠️  Failed to delete file: ${filePath}`, error);
+        }
+      }
+      
+      // Delete from database (cascade deletes violations, analysis runs, etc.)
+      await storage.deleteCreditReport(reportId);
+      console.log(`✅ Deleted credit report ${reportId}`);
+      
+      res.json({ message: "Credit report deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting credit report:", error);
+      res.status(500).json({ message: "Failed to delete credit report" });
+    }
+  });
+
   // Reprocess credit report (for FAILED or PENDING reports)
   app.post('/api/credit-reports/:id/reprocess', requireActiveSubscription, async (req: any, res) => {
     try {

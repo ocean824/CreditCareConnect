@@ -1,19 +1,23 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import Navigation from "@/components/Navigation";
 import { DocumentHistoryPanel } from "@/components/DocumentHistoryPanel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, TrendingUp, Shield, DollarSign, Target } from "lucide-react";
+import { AlertCircle, TrendingUp, Shield, DollarSign, Target, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import type { CreditReport, Violation } from "@shared/schema";
 
 export default function Analysis() {
   const { user, isLoading } = useAuth();
   const [viewingDocument, setViewingDocument] = useState<any>(null);
+  const { toast } = useToast();
 
-  const { data: creditReports } = useQuery<CreditReport[]>({
+  const { data: creditReports, refetch: refetchReports } = useQuery<CreditReport[]>({
     queryKey: ["/api/credit-reports"],
     enabled: !!user,
   });
@@ -21,6 +25,29 @@ export default function Analysis() {
   const { data: violations } = useQuery<Violation[]>({
     queryKey: ["/api/violations"],
     enabled: !!user,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (reportId: string) => {
+      return await apiRequest(`/api/credit-reports/${reportId}`, {
+        method: 'DELETE',
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Credit report deleted successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/violations"] });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete credit report",
+        variant: "destructive",
+      });
+    },
   });
 
   if (isLoading) {
@@ -62,6 +89,44 @@ export default function Analysis() {
         activeTab="analysis"
         onTabChange={() => {}}
       />
+
+      {creditReports && creditReports.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Uploaded Reports</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 gap-3">
+                {creditReports.map((report) => (
+                  <div 
+                    key={report.id} 
+                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50"
+                    data-testid={`credit-report-row-${report.id}`}
+                  >
+                    <div>
+                      <p className="font-medium text-sm">{report.fileName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Status: {report.analysisStatus}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => deleteMutation.mutate(report.id)}
+                      disabled={deleteMutation.isPending}
+                      data-testid={`button-delete-report-${report.id}`}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">

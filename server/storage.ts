@@ -50,6 +50,7 @@ export interface IStorage {
   createCreditReport(report: InsertCreditReport): Promise<CreditReport>;
   getCreditReportsByUserId(userId: string): Promise<CreditReport[]>;
   updateCreditReportAnalysis(id: string, analysisResults: any, status: string): Promise<CreditReport>;
+  deleteCreditReport(id: string): Promise<void>;
   
   // Violations operations
   createViolation(violation: InsertViolation): Promise<Violation>;
@@ -205,6 +206,16 @@ export class DatabaseStorage implements IStorage {
       .where(eq(creditReports.id, id))
       .returning();
     return creditReport;
+  }
+
+  async deleteCreditReport(id: string): Promise<void> {
+    // Delete related records first
+    await db.delete(violations).where(eq(violations.creditReportId, id));
+    await db.delete(analysisRuns).where(eq(analysisRuns.creditReportId, id));
+    await db.delete(issues).where(eq(issues.runId, sql`(SELECT id FROM analysis_runs WHERE credit_report_id = ${id})`));
+    await db.delete(aiIssueExplanations).where(eq(aiIssueExplanations.runId, sql`(SELECT id FROM analysis_runs WHERE credit_report_id = ${id})`));
+    // Delete the credit report itself
+    await db.delete(creditReports).where(eq(creditReports.id, id));
   }
 
   // Violations operations
