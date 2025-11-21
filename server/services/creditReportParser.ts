@@ -3,6 +3,7 @@ import type { CreditReport, BureauName } from "../models/creditReport";
 
 const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY;
 const openai = apiKey ? new OpenAI({ apiKey }) : null;
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.1-chat-latest";
 
 export async function parseCreditReportText(
   reportText: string,
@@ -97,7 +98,7 @@ ${reportText}
 `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo",
+      model: OPENAI_MODEL,
       messages: [
         {
           role: "system",

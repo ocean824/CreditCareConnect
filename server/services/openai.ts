@@ -1,10 +1,14 @@
 import OpenAI from "openai";
 
-// Using GPT-4 Turbo (gpt-4-turbo) - Advanced reasoning model for credit analysis
+// Using GPT-5.1 Chat (gpt-5.1-chat-latest) - Latest advanced reasoning model for credit analysis
 // Provides superior accuracy for credit report parsing and violation detection with advanced reasoning
+// Configurable via OPENAI_MODEL environment variable
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY 
 });
+
+// Get the model from environment or default to gpt-5.1-chat-latest
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.1-chat-latest";
 
 export interface CreditReportViolation {
   accountName: string;
@@ -62,7 +66,7 @@ export async function analyzeCreditReport(reportText: string, bureau?: string): 
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo",
+      model: OPENAI_MODEL,
       messages: [
         {
           role: "system",
@@ -137,7 +141,7 @@ export async function generateDisputeLetter(
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo",
+      model: OPENAI_MODEL,
       messages: [
         {
           role: "system",
@@ -185,7 +189,7 @@ export async function chatWithAI(
     ];
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo",
+      model: OPENAI_MODEL,
       messages: messages as any,
     });
 
@@ -223,7 +227,7 @@ export async function generateCFPBComplaint(
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo",
+      model: OPENAI_MODEL,
       messages: [
         {
           role: "system",

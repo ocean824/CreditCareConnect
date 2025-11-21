@@ -6,6 +6,7 @@ import type { AiIssueExplanation, DisputeAngle } from "../ai/disputeLetterGenera
 
 const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY;
 const openai = apiKey ? new OpenAI({ apiKey }) : null;
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.1-chat-latest";
 
 if (!apiKey) {
   console.warn('⚠️  OpenAI API key not configured - AI explanations will be unavailable');
@@ -84,7 +85,7 @@ Return a JSON array of explanations with this structure:
 `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo",
+      model: OPENAI_MODEL,
       messages: [
         {
           role: "system",
