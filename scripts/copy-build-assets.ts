@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * Copy non-TypeScript assets to dist/ directory after build
- * This ensures openapi.yml is available in production builds
+ * This ensures openapi.yml and attached_assets are available in production builds
  */
 import fs from 'fs';
 import path from 'path';
@@ -29,6 +29,23 @@ try {
 } catch (error) {
   console.error('❌ Failed to copy openapi.yml:', error);
   process.exit(1);
+}
+
+// Copy attached_assets to dist/public/attached_assets
+const attachedAssetsSource = path.join(rootDir, 'attached_assets');
+const attachedAssetsDest = path.join(rootDir, 'dist', 'public', 'attached_assets');
+
+if (fs.existsSync(attachedAssetsSource)) {
+  try {
+    // Recursively copy directory
+    fs.cpSync(attachedAssetsSource, attachedAssetsDest, { recursive: true, force: true });
+    console.log('✅ Copied attached_assets → dist/public/attached_assets');
+  } catch (error) {
+    console.error('❌ Failed to copy attached_assets:', error);
+    process.exit(1);
+  }
+} else {
+  console.log('⚠️  attached_assets directory not found, skipping copy');
 }
 
 console.log('✅ Build assets copied successfully!');
