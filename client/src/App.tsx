@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import { useEffect } from "react";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import UserLogin from "@/pages/user-login";
@@ -78,6 +79,17 @@ function Router() {
 }
 
 function App() {
+  // Clear all cached data on app mount to ensure fresh data from database
+  useEffect(() => {
+    queryClient.clear();
+    // Clear browser localStorage of any cached data
+    try {
+      localStorage.clear();
+    } catch (e) {
+      console.warn("Could not clear localStorage:", e);
+    }
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
