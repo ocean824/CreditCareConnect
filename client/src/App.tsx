@@ -104,7 +104,9 @@ function App() {
         try {
           const dbs = await indexedDB.databases?.() || [];
           for (const db of dbs) {
-            indexedDB.deleteDatabase(db.name);
+            if (db.name) {
+              indexedDB.deleteDatabase(db.name);
+            }
           }
         } catch (e) {
           console.warn("Could not clear IndexedDB:", e);
