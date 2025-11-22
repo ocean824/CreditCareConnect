@@ -14,9 +14,12 @@ import { registerOpenApi } from "./openapi";
 
 const app = express();
 
-// Trust proxy in production for proper HTTPS/session handling
+// Set environment and trust proxy in production
 if (process.env.NODE_ENV === "production") {
+  app.set("env", "production");
   app.set("trust proxy", 1);
+} else {
+  app.set("env", "development");
 }
 
 // Set proper CSP headers to allow React app to load
