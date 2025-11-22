@@ -79,61 +79,12 @@ function Router() {
 }
 
 function App() {
-  // Clear ALL browser caches on app mount - aggressive cache clearing
+  // Clear React Query cache only - don't touch auth storage
   useEffect(() => {
-    const clearAllCaches = async () => {
-      // Clear React Query cache
-      queryClient.clear();
-      
-      // Clear localStorage
-      try {
-        localStorage.clear();
-      } catch (e) {
-        console.warn("Could not clear localStorage:", e);
-      }
-      
-      // Clear sessionStorage
-      try {
-        sessionStorage.clear();
-      } catch (e) {
-        console.warn("Could not clear sessionStorage:", e);
-      }
-      
-      // Clear IndexedDB (used by some caching libraries)
-      if (indexedDB) {
-        try {
-          const dbs = await indexedDB.databases?.() || [];
-          for (const db of dbs) {
-            if (db.name) {
-              indexedDB.deleteDatabase(db.name);
-            }
-          }
-        } catch (e) {
-          console.warn("Could not clear IndexedDB:", e);
-        }
-      }
-      
-      // Clear service worker cache
-      if ('serviceWorker' in navigator) {
-        try {
-          const registrations = await navigator.serviceWorker.getRegistrations();
-          for (const registration of registrations) {
-            registration.unregister();
-          }
-          // Clear all cache storage
-          const cacheNames = await caches.keys();
-          for (const cacheName of cacheNames) {
-            await caches.delete(cacheName);
-          }
-        } catch (e) {
-          console.warn("Could not clear service worker cache:", e);
-        }
-      }
-      
-      console.log("✅ All caches cleared on app startup");
-    };
-    
-    clearAllCaches();
+    // Only clear React Query cache to force fresh data fetches
+    // Do NOT clear localStorage/sessionStorage as it contains auth tokens
+    queryClient.clear();
+    console.log("✅ React Query cache cleared on app startup");
   }, []);
 
   return (
