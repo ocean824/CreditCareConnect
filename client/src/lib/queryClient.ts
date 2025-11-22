@@ -12,9 +12,17 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
+  // Add cache-busting query parameter for GET requests
+  const cachebustedUrl = method === "GET" ? `${url}?t=${Date.now()}` : url;
+  
+  const res = await fetch(cachebustedUrl, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...data ? { "Content-Type": "application/json" } : {},
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0",
+    },
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -29,8 +37,17 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    // Add cache-busting timestamp to all queries
+    const url = queryKey.join("/") as string;
+    const cachebustedUrl = `${url}?t=${Date.now()}`;
+    
+    const res = await fetch(cachebustedUrl, {
       credentials: "include",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+      },
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

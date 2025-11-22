@@ -79,15 +79,59 @@ function Router() {
 }
 
 function App() {
-  // Clear all cached data on app mount to ensure fresh data from database
+  // Clear ALL browser caches on app mount - aggressive cache clearing
   useEffect(() => {
-    queryClient.clear();
-    // Clear browser localStorage of any cached data
-    try {
-      localStorage.clear();
-    } catch (e) {
-      console.warn("Could not clear localStorage:", e);
-    }
+    const clearAllCaches = async () => {
+      // Clear React Query cache
+      queryClient.clear();
+      
+      // Clear localStorage
+      try {
+        localStorage.clear();
+      } catch (e) {
+        console.warn("Could not clear localStorage:", e);
+      }
+      
+      // Clear sessionStorage
+      try {
+        sessionStorage.clear();
+      } catch (e) {
+        console.warn("Could not clear sessionStorage:", e);
+      }
+      
+      // Clear IndexedDB (used by some caching libraries)
+      if (indexedDB) {
+        try {
+          const dbs = await indexedDB.databases?.() || [];
+          for (const db of dbs) {
+            indexedDB.deleteDatabase(db.name);
+          }
+        } catch (e) {
+          console.warn("Could not clear IndexedDB:", e);
+        }
+      }
+      
+      // Clear service worker cache
+      if ('serviceWorker' in navigator) {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const registration of registrations) {
+            registration.unregister();
+          }
+          // Clear all cache storage
+          const cacheNames = await caches.keys();
+          for (const cacheName of cacheNames) {
+            await caches.delete(cacheName);
+          }
+        } catch (e) {
+          console.warn("Could not clear service worker cache:", e);
+        }
+      }
+      
+      console.log("✅ All caches cleared on app startup");
+    };
+    
+    clearAllCaches();
   }, []);
 
   return (
