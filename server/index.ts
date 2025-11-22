@@ -14,8 +14,12 @@ import { registerOpenApi } from "./openapi";
 
 const app = express();
 
-// Set environment and trust proxy in production
-if (process.env.NODE_ENV === "production") {
+// Detect production mode: either explicit NODE_ENV or presence of built dist directory
+const isProduction = process.env.NODE_ENV === "production" || 
+                     (fs.existsSync(path.resolve(import.meta.dirname, "public")) && 
+                      process.env.REPL_OWNER !== undefined); // REPL_OWNER is set in published apps
+
+if (isProduction) {
   app.set("env", "production");
   app.set("trust proxy", 1);
 } else {
