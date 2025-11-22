@@ -22,13 +22,14 @@ if (process.env.NODE_ENV === "production") {
 // Set proper CSP headers to allow React app to load
 // This overrides any restrictive defaults set by the hosting platform
 app.use((req, res, next) => {
+  // Use a more permissive CSP that allows the React app to load
+  // In production, we serve pre-built files, so we can be more strict with eval
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self' https:; script-src 'self' 'wasm-unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; font-src 'self' data: https:; connect-src 'self' https: wss:; frame-ancestors 'self';"
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com; connect-src 'self' https: wss:; frame-ancestors 'none';"
   );
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("X-Frame-Options", "DENY");
   next();
 });
 
