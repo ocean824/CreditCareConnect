@@ -41,31 +41,21 @@ export const getQueryFn: <T>(options: {
     const url = queryKey.join("/") as string;
     const cachebustedUrl = `${url}?t=${Date.now()}`;
     
-    try {
-      const res = await fetch(cachebustedUrl, {
-        credentials: "include",
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          "Pragma": "no-cache",
-          "Expires": "0",
-        },
-      });
+    const res = await fetch(cachebustedUrl, {
+      credentials: "include",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+      },
+    });
 
-      if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-        // Consume the response body to avoid connection issues
-        await res.text();
-        return null;
-      }
-
-      await throwIfResNotOk(res);
-      return await res.json();
-    } catch (error) {
-      // If it's a 401 and we should return null, do so
-      if (unauthorizedBehavior === "returnNull" && error instanceof Error && error.message.includes("401")) {
-        return null;
-      }
-      throw error;
+    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+      return null;
     }
+
+    await throwIfResNotOk(res);
+    return await res.json();
   };
 
 export const queryClient = new QueryClient({
