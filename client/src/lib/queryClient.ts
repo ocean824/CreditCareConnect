@@ -37,39 +37,30 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    try {
-      // Add cache-busting timestamp to all queries
-      const url = queryKey.join("/") as string;
-      const cachebustedUrl = `${url}?t=${Date.now()}`;
-      
-      const res = await fetch(cachebustedUrl, {
-        credentials: "include",
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          "Pragma": "no-cache",
-          "Expires": "0",
-        },
-      });
+    // Add cache-busting timestamp to all queries
+    const url = queryKey.join("/") as string;
+    const cachebustedUrl = `${url}?t=${Date.now()}`;
+    
+    const res = await fetch(cachebustedUrl, {
+      credentials: "include",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+      },
+    });
 
-      if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-        // Consume response body to avoid connection issues
-        await res.text();
-        return null;
-      }
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`${res.status}: ${errorText || res.statusText}`);
-      }
-
-      const text = await res.text();
-      return text ? JSON.parse(text) : null;
-    } catch (error) {
-      if (unauthorizedBehavior === "returnNull" && error instanceof Error && error.message.includes("401")) {
-        return null;
-      }
-      throw error;
+    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+      return null;
     }
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`${res.status}: ${errorText || res.statusText}`);
+    }
+
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
   };
 
 export const queryClient = new QueryClient({
