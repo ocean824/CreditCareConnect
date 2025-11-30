@@ -79,14 +79,6 @@ function Router() {
 }
 
 function App() {
-  // Clear React Query cache only - don't touch auth storage
-  useEffect(() => {
-    // Only clear React Query cache to force fresh data fetches
-    // Do NOT clear localStorage/sessionStorage as it contains auth tokens
-    queryClient.clear();
-    console.log("✅ React Query cache cleared on app startup");
-  }, []);
-
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
