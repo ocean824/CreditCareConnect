@@ -1,0 +1,780 @@
+wire up a real (but minimal) rules engine and give you a clean DB schema that matches everything we’ve been designing.
+
+I’ll do:
+
+A tiny but working analyzeWithRulesEngine (4 rules).
+
+A simple OpenAI-powered explanation generator.
+
+A DB schema in SQL and Drizzle-style TS so Replit can just implement.
+
+1️⃣ Minimal analyzeWithRulesEngine Implementation
+
+Create server/services/advancedCreditAnalysis.ts (or update it if it already exists).
+
+This version handles 4 high-impact rules:
+
+METRO2_CHARGEOFF_PASTDUE_NONZERO
+
+METRO2_SOLD_ACCOUNT_STILL_SHOWING_BALANCE
+
+METRO2_DUPLICATE_TRADELINES_SAME_DEBT
+
+FDCPA_DUPLICATE_COLLECTORS_SAME_DEBT
+
+// server/services/advancedCreditAnalysis.ts
+
+import crypto from 'crypto';
+import OpenAI from 'openai';
+
+import rulesCatalog from '../config/rules_catalog.json';
+import {
+  CreditReport,
+  IssueFlag,
+  AiIssueExplanation,
+  IssueSeverity,
+  IssueCategory,
+  RelatedAccountRef,
+  StatuteReference
+} from '../types/credit';
+
+const apiKey = process.env.OPENAI_API_KEY;
+const openai = apiKey ? new OpenAI({ apiKey }) : null;
+
+interface AnalyzeInput {
+  report: CreditReport;
+  userId: string;
+}
+
+interface AnalyzeOutput {
+  issues: IssueFlag[];
+  aiExplanations: AiIssueExplanation[];
+}
+
+type RuleConfig = (typeof rulesCatalog)['rules'][number];
+
+const ruleIndex = new Map<string, RuleConfig>();
+rulesCatalog.rules.forEach((r) => ruleIndex.set(r.id, r));
+
+export async function analyzeWithRulesEngine(
+  input: AnalyzeInput
+): Promise<AnalyzeOutput> {
+  const { report, userId } = input;
+  const issues: IssueFlag[] = [];
+
+  // 1️⃣ METRO2_CHARGEOFF_PASTDUE_NONZERO
+  issues.push(...detectChargeoffPastDueNonZero(report, userId));
+
+  // 2️⃣ METRO2_SOLD_ACCOUNT_STILL_SHOWING_BALANCE
+  issues.push(...detectSoldStillShowingBalance(report, userId));
+
+  // 3️⃣ METRO2_DUPLICATE_TRADELINES_SAME_DEBT
+  issues.push(...detectDuplicateTradelinesSameDebt(report, userId));
+
+  // 4️⃣ FDCPA_DUPLICATE_COLLECTORS_SAME_DEBT
+  issues.push(...detectDuplicateCollectorsSameDebt(report, userId));
+
+  // 5️⃣ Ask OpenAI to explain issues (if configured)
+  const aiExplanations = openai
+    ? await generateAiExplanationsForIssues({ issues, report, userId })
+    : [];
+
+  return { issues, aiExplanations };
+}
+
+/* ------------------------------------------------------------------ */
+/* Rule 1: METRO2_CHARGEOFF_PASTDUE_NONZERO                           */
+/* ------------------------------------------------------------------ */
+
+function detectChargeoffPastDueNonZero(
+  report: CreditReport,
+  userId: string
+): IssueFlag[] {
+  const ruleId = 'METRO2_CHARGEOFF_PASTDUE_NONZERO';
+  const cfg = ruleIndex.get(ruleId);
+  if (!cfg) return [];
+
+  const found: IssueFlag[] = [];
+
+  for (const tl of report.tradelines) {
+    if (tl.status !== 'CHARGE_OFF') continue;
+    if (!tl.pastDue || tl.pastDue <= 0) continue;
+
+    const id = crypto.randomUUID();
+    const related: RelatedAccountRef = {
+      kind: 'TRADELINE',
+      accountId: tl.id,
+      creditorName: tl.creditorName,
+      bureauScope: tl.bureaus
+    };
+
+    const statutes: StatuteReference[] = (cfg.law || []).map((l) => ({
+      law: l.law as StatuteReference['law'],
+      citation: l.citation,
+      description: l.description
+    }));
+
+    const issue: IssueFlag = {
+      id,
+      userId,
+      reportId: report.id,
+      ruleId,
+      category: cfg.category as IssueCategory,
+      severity: cfg.severityDefault as IssueSeverity,
+      title: cfg.label,
+      description:
+        cfg.description +
+        ` Example: ${tl.creditorName} is coded as charge-off with past-due = ${tl.pastDue} and balance = ${tl.balance}.`,
+      relatedAccount: related,
+      statutes,
+      disputeRecommended: true,
+      isCollectorIssue: false,
+      collectorName: undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    found.push(issue);
+  }
+
+  return found;
+}
+
+/* ------------------------------------------------------------------ */
+/* Rule 2: METRO2_SOLD_ACCOUNT_STILL_SHOWING_BALANCE                  */
+/* ------------------------------------------------------------------ */
+
+function detectSoldStillShowingBalance(
+  report: CreditReport,
+  userId: string
+): IssueFlag[] {
+  const ruleId = 'METRO2_SOLD_ACCOUNT_STILL_SHOWING_BALANCE';
+  const cfg = ruleIndex.get(ruleId);
+  if (!cfg) return [];
+
+  const found: IssueFlag[] = [];
+
+  for (const tl of report.tradelines) {
+    const remarksText = (tl.remarks || []).join(' ').toLowerCase();
+    const sold = remarksText.includes('sold to') || remarksText.includes('purchased by another lender');
+
+    if (!sold) continue;
+    if (!tl.balance || tl.balance <= 0) continue; // sold accounts should typically show 0 balance
+
+    const id = crypto.randomUUID();
+    const related: RelatedAccountRef = {
+      kind: 'TRADELINE',
+      accountId: tl.id,
+      creditorName: tl.creditorName,
+      bureauScope: tl.bureaus
+    };
+
+    const statutes: StatuteReference[] = (cfg.law || []).map((l) => ({
+      law: l.law as StatuteReference['law'],
+      citation: l.citation,
+      description: l.description
+    }));
+
+    const issue: IssueFlag = {
+      id,
+      userId,
+      reportId: report.id,
+      ruleId,
+      category: cfg.category as IssueCategory,
+      severity: cfg.severityDefault as IssueSeverity,
+      title: cfg.label,
+      description:
+        cfg.description +
+        ` Example: ${tl.creditorName} shows 'sold/purchased' in remarks but still reports a non-zero balance of ${tl.balance}.`,
+      relatedAccount: related,
+      statutes,
+      disputeRecommended: true,
+      isCollectorIssue: false,
+      collectorName: undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    found.push(issue);
+  }
+
+  return found;
+}
+
+/* ------------------------------------------------------------------ */
+/* Rule 3: METRO2_DUPLICATE_TRADELINES_SAME_DEBT                      */
+/* ------------------------------------------------------------------ */
+
+function detectDuplicateTradelinesSameDebt(
+  report: CreditReport,
+  userId: string
+): IssueFlag[] {
+  const ruleId = 'METRO2_DUPLICATE_TRADELINES_SAME_DEBT';
+  const cfg = ruleIndex.get(ruleId);
+  if (!cfg) return [];
+
+  const found: IssueFlag[] = [];
+
+  // Very simple grouping heuristic:
+  // key = originalCreditorName (or creditorName) + rounded balance
+  const groups = new Map<string, { key: string; items: { id: string; name: string; balance: number | undefined }[] }>();
+
+  for (const col of report.collections) {
+    const baseName = (col.originalCreditorName || col.collectorName || '').toLowerCase().trim();
+    const balanceRounded = col.balance != null ? Math.round(col.balance) : 0;
+    const key = `${baseName}|${balanceRounded}`;
+
+    if (!groups.has(key)) {
+      groups.set(key, { key, items: [] });
+    }
+    groups.get(key)!.items.push({
+      id: col.id,
+      name: col.collectorName || '',
+      balance: col.balance
+    });
+  }
+
+  for (const [, group] of groups) {
+    if (group.items.length <= 1) continue; // not a duplicate
+
+    // Flag once per group
+    const id = crypto.randomUUID();
+    const first = group.items[0];
+
+    const related: RelatedAccountRef = {
+      kind: 'COLLECTION',
+      accountId: first.id,
+      collectorName: first.name
+    };
+
+    const statutes: StatuteReference[] = (cfg.law || []).map((l) => ({
+      law: l.law as StatuteReference['law'],
+      citation: l.citation,
+      description: l.description
+    }));
+
+    const creditors = Array.from(
+      new Set(group.items.map((i) => i.name || 'Unknown Collector'))
+    ).join(', ');
+
+    const desc =
+      cfg.description +
+      ` This report appears to show ${group.items.length} collection tradelines for the same underlying debt (same original creditor/balance) across collectors: ${creditors}.`;
+
+    const issue: IssueFlag = {
+      id,
+      userId,
+      reportId: report.id,
+      ruleId,
+      category: cfg.category as IssueCategory,
+      severity: cfg.severityDefault as IssueSeverity,
+      title: cfg.label,
+      description: desc,
+      relatedAccount: related,
+      statutes,
+      disputeRecommended: true,
+      isCollectorIssue: true,
+      collectorName: creditors,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    found.push(issue);
+  }
+
+  return found;
+}
+
+/* ------------------------------------------------------------------ */
+/* Rule 4: FDCPA_DUPLICATE_COLLECTORS_SAME_DEBT                       */
+/* ------------------------------------------------------------------ */
+
+function detectDuplicateCollectorsSameDebt(
+  report: CreditReport,
+  userId: string
+): IssueFlag[] {
+  const ruleId = 'FDCPA_DUPLICATE_COLLECTORS_SAME_DEBT';
+  const cfg = ruleIndex.get(ruleId);
+  if (!cfg) return [];
+
+  const found: IssueFlag[] = [];
+
+  // Group by original creditor + rounded balance
+  const groups = new Map<string, { key: string; collectors: string[]; entries: typeof report.collections }>();
+
+  for (const col of report.collections) {
+    const baseName = (col.originalCreditorName || '').toLowerCase().trim();
+    const balanceRounded = col.balance != null ? Math.round(col.balance) : 0;
+    const key = `${baseName}|${balanceRounded}`;
+
+    if (!groups.has(key)) {
+      groups.set(key, { key, collectors: [], entries: [] as any });
+    }
+    const group = groups.get(key)!;
+    group.entries.push(col);
+    if (col.collectorName) {
+      group.collectors.push(col.collectorName);
+    }
+  }
+
+  for (const [, group] of groups) {
+    const uniqueCollectors = Array.from(
+      new Set(group.collectors.map((name) => name.toLowerCase().trim()))
+    );
+    if (uniqueCollectors.length <= 1) continue; // only 1 collector → not a problem for this rule
+
+    // Flag once per group
+    const id = crypto.randomUUID();
+    const first = group.entries[0];
+
+    const related: RelatedAccountRef = {
+      kind: 'COLLECTION',
+      accountId: first.id,
+      collectorName: first.collectorName,
+      bureauScope: first.bureaus
+    };
+
+    const statutes: StatuteReference[] = (cfg.law || []).map((l) => ({
+      law: l.law as StatuteReference['law'],
+      citation: l.citation,
+      description: l.description
+    }));
+
+    const collectorList = Array.from(
+      new Set(group.collectors)
+    ).join(', ');
+
+    const desc =
+      cfg.description +
+      ` Example: the same underlying debt (original creditor ${first.originalCreditorName ?? 'unknown'}) with balance ~${first.balance} appears to be handled by multiple collectors at once: ${collectorList}.`;
+
+    const issue: IssueFlag = {
+      id,
+      userId,
+      reportId: report.id,
+      ruleId,
+      category: cfg.category as IssueCategory,
+      severity: cfg.severityDefault as IssueSeverity,
+      title: cfg.label,
+      description: desc,
+      relatedAccount: related,
+      statutes,
+      disputeRecommended: true,
+      isCollectorIssue: true,
+      collectorName: collectorList,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    found.push(issue);
+  }
+
+  return found;
+}
+
+/* ------------------------------------------------------------------ */
+/* AI Explanations (OpenAI)                                           */
+/* ------------------------------------------------------------------ */
+
+async function generateAiExplanationsForIssues(params: {
+  issues: IssueFlag[];
+  report: CreditReport;
+  userId: string;
+}): Promise<AiIssueExplanation[]> {
+  const { issues, report, userId } = params;
+  if (!openai) return [];
+
+  const explanations: AiIssueExplanation[] = [];
+
+  for (const issue of issues) {
+    const ruleCfg = ruleIndex.get(issue.ruleId);
+    const statutes = ruleCfg?.law ?? [];
+
+    const systemPrompt = `
+You are an expert consumer credit and FDCPA/FCRA compliance analyst.
+You receive (1) a machine-detected issue and (2) some context.
+Return a short, precise JSON object explaining the issue in plain English for use in dispute letters.
+Do NOT include legal advice or litigation strategy, just explanation.
+`;
+
+    const userPrompt = `
+ISSUE:
+${JSON.stringify(issue, null, 2)}
+
+REPORT META:
+${JSON.stringify(report.meta ?? {}, null, 2)}
+
+RULE DESCRIPTION:
+${ruleCfg?.description ?? ''}
+
+STATUTES:
+${JSON.stringify(statutes, null, 2)}
+
+RESPONSE FORMAT (JSON ONLY):
+{
+  "shortSummary": "1–2 sentence plain-English summary.",
+  "detailedExplanation": "A paragraph explaining what appears wrong with this reporting, focusing on FCRA/Metro 2/FDCPA concepts.",
+  "disputeTheory": "One-sentence summary of why this should be disputed.",
+  "statutesCited": [
+    { "law": "FCRA" | "FDCPA" | "METRO2" | "OTHER", "citation": "string", "description": "string" }
+  ],
+  "letterSnippetBureau": "Optional text chunk tailored to be used in a bureau dispute letter.",
+  "letterSnippetCollector": "Optional text chunk tailored to be used in a collector/FDCPA letter.",
+  "recommendedEvidence": "Optional suggestion of documents the consumer could attach."
+}
+`;
+
+    try {
+      const response = await openai.responses.create({
+        model: process.env.OPENAI_MODEL || 'gpt-5.1-chat-latest',
+        input: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        response_format: { type: 'json_object' }
+      });
+
+      const content = response.output[0].content[0];
+      if (content.type !== 'output_text') {
+        throw new Error('Unexpected OpenAI response format');
+      }
+
+      const parsed = JSON.parse(content.text());
+
+      const aiExp: AiIssueExplanation = {
+        id: crypto.randomUUID(),
+        userId,
+        reportId: report.id,
+        ruleId: issue.ruleId,
+        issueId: issue.id,
+        shortSummary: parsed.shortSummary || issue.title,
+        detailedExplanation: parsed.detailedExplanation || issue.description,
+        disputeTheory: parsed.disputeTheory,
+        statutesCited: (parsed.statutesCited || statutes).map((s: any) => ({
+          law: s.law,
+          citation: s.citation,
+          description: s.description
+        })),
+        letterSnippetBureau: parsed.letterSnippetBureau,
+        letterSnippetCollector: parsed.letterSnippetCollector,
+        recommendedEvidence: parsed.recommendedEvidence,
+        model: process.env.OPENAI_MODEL || 'gpt-5.1-chat-latest',
+        createdAt: new Date().toISOString()
+      };
+
+      explanations.push(aiExp);
+    } catch (err) {
+      console.error('Error generating AI explanation for issue', issue.id, err);
+
+      // Fallback explanation if AI fails
+      const fallback: AiIssueExplanation = {
+        id: crypto.randomUUID(),
+        userId,
+        reportId: report.id,
+        ruleId: issue.ruleId,
+        issueId: issue.id,
+        shortSummary: issue.title,
+        detailedExplanation: issue.description,
+        disputeTheory: ruleCfg?.description,
+        statutesCited: (ruleCfg?.law || []).map((l) => ({
+          law: l.law as StatuteReference['law'],
+          citation: l.citation,
+          description: l.description
+        })),
+        model: 'fallback',
+        createdAt: new Date().toISOString()
+      };
+
+      explanations.push(fallback);
+    }
+  }
+
+  return explanations;
+}
+
+
+That gives Replit a concrete, working example: a few rules, plus AI explanations.
+
+2️⃣ DB Schema Design
+
+I’ll show:
+
+Plain SQL table definitions (Postgres-style).
+
+Drizzle ORM TypeScript schema that matches your types.
+
+You or Replit can implement either.
+
+A. SQL (Postgres-style) – Core Tables
+1. credit_reports
+CREATE TABLE credit_reports (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL,
+  bureau          VARCHAR(20) NOT NULL, -- 'TRI', 'EXPERIAN', 'EQUIFAX', 'TRANSUNION'
+  meta_report_date DATE,
+  provider        TEXT,
+  raw_text        TEXT,
+  parsed_json     JSONB NOT NULL,
+  analyzed_at     TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT fk_credit_reports_user
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_credit_reports_user ON credit_reports(user_id);
+CREATE INDEX idx_credit_reports_created_at ON credit_reports(created_at);
+
+2. violations (IssueFlag)
+CREATE TABLE violations (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id               UUID NOT NULL,
+  report_id             UUID NOT NULL,
+  rule_id               TEXT NOT NULL,
+  category              VARCHAR(20) NOT NULL,   -- 'FCRA', 'METRO2', 'FDCPA', 'OTHER'
+  severity              VARCHAR(20) NOT NULL,   -- 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'
+  title                 TEXT NOT NULL,
+  description           TEXT NOT NULL,
+
+  -- RelatedAccountRef
+  related_kind          VARCHAR(30) NOT NULL,   -- 'TRADELINE', 'COLLECTION', ...
+  related_account_id    TEXT,
+  related_creditor_name TEXT,
+  related_collector_name TEXT,
+  bureau_scope          TEXT[],                 -- array of 'EXPERIAN'/'EQUIFAX'/'TRANSUNION'
+
+  -- Statutes as JSON array: [{law,citation,description}]
+  statutes              JSONB,
+
+  dispute_recommended   BOOLEAN NOT NULL DEFAULT TRUE,
+  is_collector_issue    BOOLEAN NOT NULL DEFAULT FALSE,
+  collector_name        TEXT,
+
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT fk_violations_user
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+
+  CONSTRAINT fk_violations_report
+    FOREIGN KEY (report_id) REFERENCES credit_reports(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_violations_user ON violations(user_id);
+CREATE INDEX idx_violations_report ON violations(report_id);
+CREATE INDEX idx_violations_rule ON violations(rule_id);
+CREATE INDEX idx_violations_collector ON violations(collector_name);
+
+3. violation_explanations (AiIssueExplanation)
+CREATE TABLE violation_explanations (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                UUID NOT NULL,
+  report_id              UUID NOT NULL,
+  issue_id               UUID,                 -- references violations.id (optional)
+  rule_id                TEXT NOT NULL,
+
+  short_summary          TEXT NOT NULL,
+  detailed_explanation   TEXT NOT NULL,
+  dispute_theory         TEXT,
+  statutes_cited         JSONB,                -- array of {law,citation,description}
+
+  letter_snippet_bureau   TEXT,
+  letter_snippet_collector TEXT,
+  recommended_evidence    TEXT,
+
+  model                  TEXT,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT fk_expl_user
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+
+  CONSTRAINT fk_expl_report
+    FOREIGN KEY (report_id) REFERENCES credit_reports(id) ON DELETE CASCADE,
+
+  CONSTRAINT fk_expl_issue
+    FOREIGN KEY (issue_id) REFERENCES violations(id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_expl_user ON violation_explanations(user_id);
+CREATE INDEX idx_expl_report ON violation_explanations(report_id);
+CREATE INDEX idx_expl_rule ON violation_explanations(rule_id);
+
+4. dispute_letters
+CREATE TABLE dispute_letters (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL,
+  report_id       UUID NOT NULL,
+
+  recipient_type  VARCHAR(20) NOT NULL,  -- 'BUREAU' or 'COLLECTOR'
+  recipient_label TEXT NOT NULL,         -- e.g. 'Experian' or 'LVNV Funding'
+
+  bureau          VARCHAR(20),           -- if recipient_type='BUREAU'
+  collector_name  TEXT,                  -- if recipient_type='COLLECTOR'
+
+  round           INTEGER NOT NULL,      -- 1, 2, 3
+  violation_ids   TEXT[] NOT NULL,       -- list of violation UUID strings
+
+  pdf_path        TEXT NOT NULL,         -- filesystem path on server
+  pdf_url         TEXT NOT NULL,         -- public URL (e.g. /files/letters/...)
+
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT fk_letters_user
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+
+  CONSTRAINT fk_letters_report
+    FOREIGN KEY (report_id) REFERENCES credit_reports(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_letters_user ON dispute_letters(user_id);
+CREATE INDEX idx_letters_report ON dispute_letters(report_id);
+CREATE INDEX idx_letters_recipient ON dispute_letters(recipient_type, recipient_label);
+
+B. Drizzle ORM Schema (Postgres)
+
+If you’re using Drizzle with Postgres, you can model these like:
+
+// server/db/schema.ts
+import {
+  pgTable,
+  uuid,
+  text,
+  varchar,
+  timestamp,
+  jsonb,
+  boolean,
+  integer,
+  date,
+  array
+} from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+
+// Assume you already have a users table defined somewhere:
+export const users = pgTable('users', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  // ... other user fields
+});
+
+export const creditReports = pgTable('credit_reports', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  bureau: varchar('bureau', { length: 20 }).notNull(), // 'TRI','EXPERIAN',...
+  metaReportDate: date('meta_report_date'),
+  provider: text('provider'),
+  rawText: text('raw_text'),
+  parsedJson: jsonb('parsed_json').notNull(), // stores CreditReport object
+  analyzedAt: timestamp('analyzed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .default(sql`now()`)
+});
+
+export const violations = pgTable('violations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  reportId: uuid('report_id')
+    .notNull()
+    .references(() => creditReports.id, { onDelete: 'cascade' }),
+
+  ruleId: text('rule_id').notNull(),
+  category: varchar('category', { length: 20 }).notNull(), // FCRA, METRO2, FDCPA, OTHER
+  severity: varchar('severity', { length: 20 }).notNull(), // LOW,MEDIUM,HIGH,CRITICAL
+  title: text('title').notNull(),
+  description: text('description').notNull(),
+
+  relatedKind: varchar('related_kind', { length: 30 }).notNull(), // TRADELINE/COLLECTION/...
+  relatedAccountId: text('related_account_id'),
+  relatedCreditorName: text('related_creditor_name'),
+  relatedCollectorName: text('related_collector_name'),
+  bureauScope: array(text('bureau_scope')), // 'EXPERIAN','EQUIFAX','TRANSUNION'
+
+  statutes: jsonb('statutes'), // array of {law,citation,description}
+
+  disputeRecommended: boolean('dispute_recommended').notNull().default(true),
+  isCollectorIssue: boolean('is_collector_issue').notNull().default(false),
+  collectorName: text('collector_name'),
+
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .default(sql`now()`)
+});
+
+export const violationExplanations = pgTable('violation_explanations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  reportId: uuid('report_id')
+    .notNull()
+    .references(() => creditReports.id, { onDelete: 'cascade' }),
+  issueId: uuid('issue_id').references(() => violations.id, {
+    onDelete: 'set null'
+  }),
+  ruleId: text('rule_id').notNull(),
+
+  shortSummary: text('short_summary').notNull(),
+  detailedExplanation: text('detailed_explanation').notNull(),
+  disputeTheory: text('dispute_theory'),
+  statutesCited: jsonb('statutes_cited'), // array of {law,citation,description}
+
+  letterSnippetBureau: text('letter_snippet_bureau'),
+  letterSnippetCollector: text('letter_snippet_collector'),
+  recommendedEvidence: text('recommended_evidence'),
+
+  model: text('model'),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .default(sql`now()`)
+});
+
+export const disputeLetters = pgTable('dispute_letters', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  reportId: uuid('report_id')
+    .notNull()
+    .references(() => creditReports.id, { onDelete: 'cascade' }),
+
+  recipientType: varchar('recipient_type', { length: 20 }).notNull(), // BUREAU/COLLECTOR
+  recipientLabel: text('recipient_label').notNull(),
+
+  bureau: varchar('bureau', { length: 20 }),
+  collectorName: text('collector_name'),
+
+  round: integer('round').notNull(),
+  violationIds: array(text('violation_ids')).notNull(), // string UUIDs
+
+  pdfPath: text('pdf_path').notNull(),
+  pdfUrl: text('pdf_url').notNull(),
+
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .default(sql`now()`)
+});
+
+
+These schemas line up cleanly with:
+
+CreditReport (stored as JSON in credit_reports.parsed_json)
+
+IssueFlag → violations
+
+AiIssueExplanation → violation_explanations
+
+GeneratedLetter metadata → dispute_letters

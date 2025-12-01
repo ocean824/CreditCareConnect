@@ -1,0 +1,706 @@
+Replit UI dev a battle plan instead of vibes. I’ll sketch:
+
+Route map
+
+Page components
+
+Reusable child components
+
+Data hooks
+
+API client layer
+
+All wired to the backend endpoints we already defined (/api/credit-reports/upload, /api/credit-reports, /api/violations, /api/dispute-letters/generate, etc.).
+
+1️⃣ Route Map (React Router / Next.js style)
+
+Assuming a standard SPA with React Router (if you’re on Next.js, these become page files instead of route entries):
+
+/dashboard
+→ High-level overview, shortcut tiles to upload & reports.
+
+/reports
+→ ReportsListPage – list all parsed credit reports for the logged-in user.
+
+/reports/:reportId
+→ ReportDetailPage – show report metadata, issue list, and letter generator.
+
+/reports/upload
+→ ReportUploadPage – drag-and-drop upload → calls /api/credit-reports/upload.
+
+/letters (optional later)
+→ LettersHistoryPage – list all generated letters with download links.
+
+2️⃣ Page-Level Components
+2.1 <ReportUploadPage /> – /reports/upload
+
+Purpose: Let user upload a credit report PDF and immediately trigger parsing + analysis.
+
+Core pieces:
+
+<CreditReportUploadForm />
+
+Notifications / toasts for success/failure
+
+Redirect to /reports/:id on success
+
+Pseudo-structure:
+
+// src/pages/ReportUploadPage.tsx
+import { useUploadCreditReport } from '../hooks/useUploadCreditReport';
+
+export function ReportUploadPage() {
+  const { upload, isUploading, error } = useUploadCreditReport();
+
+  const handleSubmit = async (file: File) => {
+    const result = await upload(file, { bureau: 'TRI' });
+    if (result?.reportId) {
+      // navigate(`/reports/${result.reportId}`);
+    }
+  };
+
+  return (
+    <div className="page">
+      <h1>Upload Credit Report</h1>
+      <p>Upload your IdentityIQ or tri-merge PDF to analyze FCRA / Metro 2 / FDCPA issues.</p>
+
+      <CreditReportUploadForm
+        isUploading={isUploading}
+        onSubmit={handleSubmit}
+      />
+
+      {error && <div className="error">{error}</div>}
+    </div>
+  );
+}
+
+
+<CreditReportUploadForm /> responsibilities:
+
+File input + drag-and-drop area
+
+Optional select for bureau (TRI, EXPERIAN, EQUIFAX, TRANSUNION)
+
+Calls onSubmit(file).
+
+2.2 <ReportsListPage /> – /reports
+
+Purpose: Show all uploaded/analyzed reports and quick stats.
+
+Core pieces:
+
+<ReportsTable />
+
+<ReportRow />
+
+Pseudo-structure:
+
+// src/pages/ReportsListPage.tsx
+import { useCreditReports } from '../hooks/useCreditReports';
+
+export function ReportsListPage() {
+  const { data: reports, isLoading, error } = useCreditReports();
+
+  return (
+    <div className="page">
+      <div className="page-header">
+        <h1>Credit Reports</h1>
+        {/* Link to upload page */}
+        {/* <Link to="/reports/upload" className="btn">Upload New Report</Link> */}
+      </div>
+
+      {isLoading && <p>Loading...</p>}
+      {error && <p className="error">{error}</p>}
+
+      {reports && reports.length > 0 ? (
+        <ReportsTable reports={reports} />
+      ) : (
+        !isLoading && <p>No reports yet. Upload your first report to get started.</p>
+      )}
+    </div>
+  );
+}
+
+
+ReportsTable rows show:
+
+Report date (from meta.reportDate)
+
+Provider (e.g. IdentityIQ)
+
+Bureau / "Tri-merge"
+
+Count of violations (FCRA / Metro 2 / FDCPA)
+
+“View” button → /reports/:id
+
+2.3 <ReportDetailPage /> – /reports/:reportId
+
+Purpose: Central hub:
+
+Show report meta
+
+Show issues grouped by law (FCRA / METRO2 / FDCPA)
+
+Let user pick violations and generate letters
+
+Core pieces:
+
+<ReportSummaryCard />
+
+<ViolationsFilterBar /> (category, severity filters)
+
+<ViolationsTable /> (issues with checkboxes)
+
+<LetterGenerationPanel /> (recipient selection + generate button)
+
+Optional <LetterPreviewModal /> to show plaintext of generated letter
+
+Pseudo-structure:
+
+// src/pages/ReportDetailPage.tsx
+import { useParams } from 'react-router-dom';
+import { useCreditReport } from '../hooks/useCreditReport';
+import { useViolations } from '../hooks/useViolations';
+import { useGenerateLetter } from '../hooks/useGenerateLetter';
+
+export function ReportDetailPage() {
+  const { reportId } = useParams<{ reportId: string }>();
+
+  const { data: report, isLoading: reportLoading, error: reportError } =
+    useCreditReport(reportId!);
+  const { data: violations, isLoading: vLoading, error: vError } =
+    useViolations(reportId!);
+
+  const {
+    generateLetter,
+    isGenerating,
+    lastGenerated
+  } = useGenerateLetter();
+
+  const [selectedViolationIds, setSelectedViolationIds] = React.useState<string[]>([]);
+  const [recipientType, setRecipientType] = React.useState<'BUREAU' | 'COLLECTOR'>('BUREAU');
+  const [targetBureau, setTargetBureau] = React.useState<'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION'>('EXPERIAN');
+  const [targetCollector, setTargetCollector] = React.useState<string>('');
+
+  const handleGenerate = async () => {
+    if (!reportId || selectedViolationIds.length === 0) return;
+
+    const payload =
+      recipientType === 'BUREAU'
+        ? {
+            reportId,
+            violationIds: selectedViolationIds,
+            round: 1,
+            recipientType: 'BUREAU',
+            target: targetBureau
+          }
+        : {
+            reportId,
+            violationIds: selectedViolationIds,
+            round: 1,
+            recipientType: 'COLLECTOR',
+            target: targetCollector
+          };
+
+    await generateLetter(payload);
+  };
+
+  if (reportLoading || vLoading) return <p>Loading...</p>;
+  if (reportError) return <p className="error">{reportError}</p>;
+  if (!report) return <p>Report not found.</p>;
+
+  return (
+    <div className="page">
+      <h1>Report Details</h1>
+
+      <ReportSummaryCard report={report} />
+
+      <div className="layout-two-col">
+        <div className="col col-main">
+          <ViolationsFilterBar
+            violations={violations || []}
+            onFilterChange={/* optional filters */}
+          />
+
+          <ViolationsTable
+            violations={violations || []}
+            selectedIds={selectedViolationIds}
+            onSelectionChange={setSelectedViolationIds}
+          />
+        </div>
+
+        <div className="col col-side">
+          <LetterGenerationPanel
+            violations={violations || []}
+            selectedIds={selectedViolationIds}
+            recipientType={recipientType}
+            onRecipientTypeChange={setRecipientType}
+            targetBureau={targetBureau}
+            onTargetBureauChange={setTargetBureau}
+            targetCollector={targetCollector}
+            onTargetCollectorChange={setTargetCollector}
+            onGenerate={handleGenerate}
+            isGenerating={isGenerating}
+            lastGenerated={lastGenerated}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+Key behavior:
+
+<ViolationsTable /> shows issues grouped by category or with chips.
+
+Selection drives which issues go into /api/dispute-letters/generate.
+
+<LetterGenerationPanel /> computes:
+
+Distinct collectors from selected issues (issue.collectorName).
+
+Bureaus from issue.relatedAccount.bureauScope.
+
+2.4 <LettersHistoryPage /> – /letters (optional)
+
+Purpose: Show history of letters generated:
+
+who they were sent to
+
+which report
+
+when
+
+link to PDF (pdfUrl)
+
+Core pieces:
+
+<LettersTable />
+
+Pseudo-structure:
+
+// src/pages/LettersHistoryPage.tsx
+import { useLetters } from '../hooks/useLetters';
+
+export function LettersHistoryPage() {
+  const { data: letters, isLoading, error } = useLetters();
+
+  return (
+    <div className="page">
+      <h1>Dispute Letters</h1>
+
+      {isLoading && <p>Loading...</p>}
+      {error && <p className="error">{error}</p>}
+
+      {letters && letters.length > 0 ? (
+        <LettersTable letters={letters} />
+      ) : (
+        !isLoading && <p>No letters generated yet.</p>
+      )}
+    </div>
+  );
+}
+
+3️⃣ Reusable Components
+3.1 <ViolationsTable />
+
+Props:
+
+type ViolationsTableProps = {
+  violations: IssueFlag[];
+  selectedIds: string[];
+  onSelectionChange: (ids: string[]) => void;
+};
+
+
+Responsibilities:
+
+Table grouped by category (FCRA / METRO2 / FDCPA / OTHER).
+
+Each row:
+
+Checkbox
+
+Severity badge (LOW/MEDIUM/HIGH/CRITICAL)
+
+Title
+
+Related account (creditor/collector + balance)
+
+Short summary tooltip (if you want: from AI explanation later, or just description).
+
+3.2 <LetterGenerationPanel />
+
+Props:
+
+type LetterGenerationPanelProps = {
+  violations: IssueFlag[];
+  selectedIds: string[];
+
+  recipientType: 'BUREAU' | 'COLLECTOR';
+  onRecipientTypeChange: (type: 'BUREAU' | 'COLLECTOR') => void;
+
+  targetBureau: 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION';
+  onTargetBureauChange: (b: 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION') => void;
+
+  targetCollector: string;
+  onTargetCollectorChange: (name: string) => void;
+
+  isGenerating: boolean;
+  lastGenerated?: {
+    letterId: string;
+    pdfUrl: string;
+    recipient: string;
+  };
+
+  onGenerate: () => void;
+};
+
+
+Responsibilities:
+
+Radio buttons:
+
+“Credit Bureau” → show bureau dropdown
+
+“Collector / Debt Buyer” → show collector dropdown built from violations
+
+Show count of selected issues.
+
+“Generate Letter” button.
+
+Collector dropdown logic:
+
+Compute unique collector names from selected issues:
+
+const collectors = React.useMemo(
+  () =>
+    Array.from(
+      new Set(
+        violations
+          .filter(v => selectedIds.includes(v.id) && v.collectorName)
+          .map(v => v.collectorName!)
+      )
+    ),
+  [violations, selectedIds]
+);
+
+4️⃣ Hooks Layer (Data Access)
+
+You can implement these with fetch or axios. I’ll show a generic shape with fetch and React Query-ish patterns (you can adapt).
+
+4.1 useCreditReports
+// src/hooks/useCreditReports.ts
+import { useEffect, useState } from 'react';
+import { CreditReportSummary } from '../types/api';
+
+export function useCreditReports() {
+  const [data, setData] = useState<CreditReportSummary[] | null>(null);
+  const [isLoading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch('/api/credit-reports')
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((json) => {
+        if (!cancelled) setData(json.reports);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Failed to load reports');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { data, isLoading, error };
+}
+
+
+Backend expectation:
+
+GET /api/credit-reports → { reports: CreditReportSummary[] } where CreditReportSummary includes:
+
+id
+
+meta.reportDate
+
+bureau
+
+provider
+
+violationsCount
+
+4.2 useCreditReport(reportId)
+// src/hooks/useCreditReport.ts
+import { useEffect, useState } from 'react';
+import { CreditReport } from '../types/credit';
+
+export function useCreditReport(reportId: string) {
+  const [data, setData] = useState<CreditReport | null>(null);
+  const [isLoading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/credit-reports/${reportId}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((json) => {
+        if (!cancelled) setData(json.report);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Failed to load report');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reportId]);
+
+  return { data, isLoading, error };
+}
+
+
+Backend expectation:
+
+GET /api/credit-reports/:id → { report: CreditReport }.
+
+4.3 useViolations(reportId)
+// src/hooks/useViolations.ts
+import { useEffect, useState } from 'react';
+import { IssueFlag } from '../types/credit';
+
+export function useViolations(reportId: string) {
+  const [data, setData] = useState<IssueFlag[] | null>(null);
+  const [isLoading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/violations?reportId=${encodeURIComponent(reportId)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((json) => {
+        if (!cancelled) setData(json.violations);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Failed to load violations');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reportId]);
+
+  return { data, isLoading, error };
+}
+
+
+Backend expectation:
+
+GET /api/violations?reportId=:id → { violations: IssueFlag[] }.
+
+4.4 useUploadCreditReport
+// src/hooks/useUploadCreditReport.ts
+import { useState } from 'react';
+
+type UploadOptions = {
+  bureau?: 'TRI' | 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION';
+};
+
+type UploadResult = {
+  reportId: string;
+  issuesCount: number;
+};
+
+export function useUploadCreditReport() {
+  const [isUploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function upload(file: File, options: UploadOptions): Promise<UploadResult | null> {
+    setUploading(true);
+    setError(null);
+
+    try {
+      // Step 1: upload file to storage (if you have a dedicated file endpoint)
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const uploadRes = await fetch('/api/files/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!uploadRes.ok) throw new Error(`File upload failed: ${uploadRes.status}`);
+      const { filePath } = await uploadRes.json();
+
+      // Step 2: tell backend to parse + analyze
+      const res = await fetch('/api/credit-reports/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filePath,
+          bureau: options.bureau || 'TRI'
+        })
+      });
+
+      if (!res.ok) throw new Error(`Upload/parse failed: ${res.status}`);
+      const json = await res.json();
+      return { reportId: json.reportId, issuesCount: json.issuesCount };
+    } catch (err: any) {
+      setError(err.message || 'Upload failed');
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return { upload, isUploading, error };
+}
+
+
+Backend expectation:
+
+POST /api/files/upload → { filePath: string }
+
+POST /api/credit-reports/upload → { ok: true, reportId, issuesCount }
+
+4.5 useGenerateLetter
+// src/hooks/useGenerateLetter.ts
+import { useState } from 'react';
+
+type GenerateLetterPayload = {
+  reportId: string;
+  violationIds: string[];
+  round: 1 | 2 | 3;
+  recipientType: 'BUREAU' | 'COLLECTOR';
+  target: string; // 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION' or collector name
+};
+
+type GenerateLetterResponse = {
+  ok: boolean;
+  letterId: string;
+  pdfUrl: string;
+  recipientType: 'BUREAU' | 'COLLECTOR';
+  recipient: string;
+  round: number;
+};
+
+export function useGenerateLetter() {
+  const [isGenerating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastGenerated, setLastGenerated] = useState<GenerateLetterResponse | null>(null);
+
+  async function generateLetter(payload: GenerateLetterPayload) {
+    setGenerating(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/dispute-letters/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as GenerateLetterResponse;
+      setLastGenerated(json);
+      return json;
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate letter');
+      return null;
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  return { generateLetter, isGenerating, error, lastGenerated };
+}
+
+
+Backend expectation:
+POST /api/dispute-letters/generate → { ok, letterId, pdfUrl, recipientType, recipient, round }.
+
+5️⃣ Dev Checklist (what your Replit Agent / dev literally does)
+
+Routing
+
+ Add routes for /reports, /reports/:reportId, /reports/upload, and /letters (optional).
+
+ Ensure auth guard is applied (only logged-in users can see these).
+
+Types
+
+ Import shared types from server/types/credit.ts into frontend (or create mirrored types in src/types/credit.ts).
+
+Hooks
+
+ Implement useCreditReports.
+
+ Implement useCreditReport(reportId).
+
+ Implement useViolations(reportId).
+
+ Implement useUploadCreditReport.
+
+ Implement useGenerateLetter.
+
+ (Optional) Implement useLetters for /letters.
+
+Components
+
+ <ReportUploadPage /> with <CreditReportUploadForm />.
+
+ <ReportsListPage /> with <ReportsTable />.
+
+ <ReportDetailPage /> with:
+
+<ReportSummaryCard />
+
+<ViolationsFilterBar />
+
+<ViolationsTable />
+
+<LetterGenerationPanel />
+
+ Optional <LettersHistoryPage /> with <LettersTable />.
+
+API contracts
+
+ GET /api/credit-reports → { reports: CreditReportSummary[] }
+
+ GET /api/credit-reports/:id → { report: CreditReport }
+
+ GET /api/violations?reportId=:id → { violations: IssueFlag[] }
+
+ POST /api/files/upload → { filePath: string }
+
+ POST /api/credit-reports/upload → { ok, reportId, issuesCount }
+
+ POST /api/dispute-letters/generate → { ok, letterId, pdfUrl, recipientType, recipient, round }
+
+ (Optional) GET /api/dispute-letters → { letters: DisputeLetterSummary[] }
