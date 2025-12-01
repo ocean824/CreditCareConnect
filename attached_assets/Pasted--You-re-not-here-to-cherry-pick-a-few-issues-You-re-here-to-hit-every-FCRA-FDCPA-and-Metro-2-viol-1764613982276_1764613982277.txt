@@ -1,0 +1,325 @@
+“You’re not here to cherry-pick a few issues. You’re here to hit every FCRA, FDCPA, and Metro 2 violation you know about and carry all of them into the letters.”
+
+Since the app “understands” things only through code + prompts, we’ll bake that requirement into three places:
+
+The rules catalog + rules engine (what gets flagged).
+
+The letter generator (what gets included).
+
+The Replit Agent instructions (so it scaffolds everything correctly).
+
+I’ll give you concrete TS snippets and a short Agent add-on to paste in.
+
+1️⃣ Rules catalog: explicitly “cover everything you know”
+
+In your rules_catalog.json (or rulesCatalog.ts), add global metadata and make every rule opt-in for FCRA/METRO2/FDCPA coverage.
+
+// src/server/rules/rules_catalog.ts
+export type RuleCategory = 'FCRA' | 'METRO2' | 'FDCPA' | 'OTHER';
+
+export interface RuleConfig {
+  id: string;
+  category: RuleCategory;
+  description: string;
+  lawReferences: string[]; // e.g. ["FCRA 15 U.S.C. §1681e(b)"]
+  enabled: boolean;
+  appliesTo: ('TRADELINE' | 'COLLECTION' | 'PUBLIC_RECORD' | 'INQUIRY')[];
+  // Optional filters, thresholds, etc. as you expand
+}
+
+export interface RulesCatalogMeta {
+  mission: string;
+  lawsCovered: string[];
+  guarantee: string;
+}
+
+export interface RulesCatalog {
+  meta: RulesCatalogMeta;
+  rules: RuleConfig[];
+}
+
+export const rulesCatalog: RulesCatalog = {
+  meta: {
+    mission:
+      'Systematically scan every tradeline, collection, public record, and inquiry for all encoded FCRA, FDCPA, and Metro 2 violations.',
+    lawsCovered: ['FCRA', 'FDCPA', 'METRO2'],
+    guarantee:
+      'For every active rule in this catalog, analyzeWithRulesEngine MUST evaluate it against the entire CreditReport. No rule is skipped and no triggered violation is silently dropped.'
+  },
+  rules: [
+    {
+      id: 'FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE',
+      category: 'FCRA',
+      description:
+        'Same tradeline shows materially different balance or past due amount across bureaus.',
+      lawReferences: ['FCRA 15 U.S.C. §1681e(b)'],
+      enabled: true,
+      appliesTo: ['TRADELINE']
+    },
+    {
+      id: 'METRO2_CHARGEOFF_PAST_DUE_NONZERO',
+      category: 'METRO2',
+      description:
+        'Charged-off tradeline still shows full balance as “past due”, contrary to Metro 2 chargeoff best practices.',
+      lawReferences: ['Metro 2 guidelines – charge-off coding'],
+      enabled: true,
+      appliesTo: ['TRADELINE']
+    },
+    {
+      id: 'FDCPA_COLLECTION_REPORTING_UNVALIDATED',
+      category: 'FDCPA',
+      description:
+        'Collector continues reporting a disputed debt without proper validation.',
+      lawReferences: ['FDCPA 15 U.S.C. §1692g', '§1692e', '§1692f'],
+      enabled: true,
+      appliesTo: ['COLLECTION']
+    }
+    // …add more FCRA / FDCPA / Metro 2 rules over time
+  ]
+};
+
+
+So the “don’t leave any out” idea gets encoded as:
+
+For every rule in rulesCatalog.rules with enabled: true, the engine must run it and must emit IssueFlags for every match.
+
+2️⃣ Rules engine: run all rules and never drop a hit
+
+This is the enforcement point. Make analyzeWithRulesEngine:
+
+Iterate all enabled rules.
+
+Run each rule against the whole CreditReport.
+
+Collect all IssueFlags.
+
+Generate AI explanations for every issue (no sampling/skipping).
+
+Return everything; don’t internally filter.
+
+// src/server/services/rulesEngine.ts
+import { CreditReport } from '../types/credit';
+import { rulesCatalog, RuleConfig } from '../rules/rules_catalog';
+import { IssueFlag, AiIssueExplanation } from '../types/issues';
+import { runRule_FCRA_INCONSISTENT_BALANCE } from './rules/fcraInconsistentBalance';
+import { runRule_METRO2_CHARGEOFF_PAST_DUE_NONZERO } from './rules/metro2ChargeoffPastDue';
+import { runRule_FDCPA_COLLECTION_REPORTING_UNVALIDATED } from './rules/fdcpaValidation';
+// …import additional rule implementations
+
+export interface AnalyzeWithRulesEngineInput {
+  report: CreditReport;
+  userId: string;
+}
+
+export interface AnalyzeWithRulesEngineOutput {
+  issues: IssueFlag[];
+  aiExplanations: AiIssueExplanation[];
+}
+
+const ruleRunners: Record<string, (report: CreditReport, userId: string) => IssueFlag[]> = {
+  FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE: runRule_FCRA_INCONSISTENT_BALANCE,
+  METRO2_CHARGEOFF_PAST_DUE_NONZERO: runRule_METRO2_CHARGEOFF_PAST_DUE_NONZERO,
+  FDCPA_COLLECTION_REPORTING_UNVALIDATED: runRule_FDCPA_COLLECTION_REPORTING_UNVALIDATED
+  // …wire every rule id to its implementation
+};
+
+export async function analyzeWithRulesEngine(
+  input: AnalyzeWithRulesEngineInput
+): Promise<AnalyzeWithRulesEngineOutput> {
+  const { report, userId } = input;
+
+  const allIssues: IssueFlag[] = [];
+
+  // 🔒 HARD RULE: iterate EVERY enabled rule, no short-circuiting
+  for (const rule of rulesCatalog.rules) {
+    if (!rule.enabled) continue;
+
+    const runner = ruleRunners[rule.id];
+    if (!runner) {
+      // Optional: log that implementation is missing
+      continue;
+    }
+
+    const issuesFromRule = runner(report, userId) || [];
+    // ❗ NEVER drop issues here – push them all
+    for (const issue of issuesFromRule) {
+      allIssues.push(issue);
+    }
+  }
+
+  // 🔒 Generate AI explanations for EVERY IssueFlag
+  const aiExplanations = await generateAiExplanationsForIssues(allIssues);
+
+  return {
+    issues: allIssues,
+    aiExplanations
+  };
+}
+
+
+And your explanation generator should have the same “don’t skip” behavior:
+
+async function generateAiExplanationsForIssues(
+  issues: IssueFlag[]
+): Promise<AiIssueExplanation[]> {
+  if (issues.length === 0) return [];
+
+  // You can batch by 5–10 issues per call, but you MUST cover them all.
+  // Do NOT randomly sample or drop low-severity issues.
+  // Implementation omitted for brevity; but logic should:
+  // - assign an explanation to every issue.id
+  // - include FCRA / FDCPA / Metro 2 references where applicable
+
+  return allExplanations;
+}
+
+3️⃣ Letter generator: include all relevant violations for that target
+
+Next: ensure generateAllDisputeLetters uses every IssueFlag that applies to the selected bureau or collector.
+
+Key rules:
+
+For a bureau letter (Experian, Equifax, TU):
+
+Include all issues whose related tradeline/collection has that bureau in its bureauSnapshots or bureauScope.
+
+For a collector letter:
+
+Include all issues that reference that collector (issue.collectorName or issue.relatedAccount.collectorName).
+
+Do not silently drop low severity issues; you can group them visually, but they must be present.
+
+// src/server/services/disputeLetters.ts
+import { CreditReport } from '../types/credit';
+import { IssueFlag, AiIssueExplanation } from '../types/issues';
+
+interface GenerateLettersInput {
+  report: CreditReport;
+  issues: IssueFlag[];
+  explanations: AiIssueExplanation[];
+  userInfo: {
+    name: string;
+    address: string;
+    phone?: string;
+    email?: string;
+    ssnLast4?: string;
+    dob?: string;
+  };
+  round: 1 | 2 | 3;
+}
+
+export interface DisputeLettersResult {
+  bureauLetters: Record<'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION', string | undefined>; // HTML
+  collectorLetters: Record<string, string>; // collectorName -> HTML
+}
+
+export async function generateAllDisputeLetters(
+  input: GenerateLettersInput
+): Promise<DisputeLettersResult> {
+  const { report, issues, explanations, userInfo, round } = input;
+
+  const bureauLetters: DisputeLettersResult['bureauLetters'] = {
+    EXPERIAN: undefined,
+    EQUIFAX: undefined,
+    TRANSUNION: undefined
+  };
+
+  // Helper to match explanations to issues
+  const explanationByIssueId = new Map(
+    explanations.map((e) => [e.issueId, e])
+  );
+
+  // 1) BUREAU LETTERS – include ALL issues relevant to that bureau
+  (['EXPERIAN', 'EQUIFAX', 'TRANSUNION'] as const).forEach((bureau) => {
+    const bureauIssues = issues.filter((issue) =>
+      issue.relatedAccount?.bureauScope?.includes(bureau)
+    );
+
+    if (bureauIssues.length === 0) return;
+
+    bureauLetters[bureau] = renderBureauLetterHtml({
+      report,
+      bureau,
+      issues: bureauIssues,
+      explanations: bureauIssues.map(
+        (issue) => explanationByIssueId.get(issue.id)
+      ).filter(Boolean) as AiIssueExplanation[],
+      userInfo,
+      round
+    });
+  });
+
+  // 2) COLLECTOR LETTERS – include ALL issues tied to that collector
+  const collectorMap = new Map<string, IssueFlag[]>();
+
+  for (const issue of issues) {
+    const collectorName =
+      issue.collectorName || issue.relatedAccount?.collectorName;
+    if (!collectorName) continue;
+
+    if (!collectorMap.has(collectorName)) {
+      collectorMap.set(collectorName, []);
+    }
+    collectorMap.get(collectorName)!.push(issue);
+  }
+
+  const collectorLetters: Record<string, string> = {};
+  for (const [collectorName, collectorIssues] of collectorMap) {
+    const exps = collectorIssues
+      .map((issue) => explanationByIssueId.get(issue.id))
+      .filter(Boolean) as AiIssueExplanation[];
+
+    collectorLetters[collectorName] = renderCollectorLetterHtml({
+      report,
+      collectorName,
+      issues: collectorIssues,
+      explanations: exps,
+      userInfo,
+      round
+    });
+  }
+
+  return { bureauLetters, collectorLetters };
+}
+
+
+The key bit: no filtering by severity here. If an issue made it into issues[], it must be considered for the letter. If later you want a “simple mode,” you can add a user option to hide certain categories — but the engine itself shouldn’t silently drop them.
+
+4️⃣ Add one more paragraph to your Replit Agent prompt
+
+To hard-wire this into the Agent’s brain, append this block to the end of your last Replit Agent prompt (the one about wiring parseCreditReportWithAiOnly → /api/credit-reports/upload → analyzeWithRulesEngine → DB):
+
+ADDITIONAL REQUIREMENT – DO NOT SKIP VIOLATIONS
+
+The core mission of this app is to analyze credit reports for EVERY possible violation that has a rule in the rules catalog, specifically:
+
+- FCRA violations (accuracy, completeness, obsolete reporting, dispute coding, etc.)
+- Metro 2 data and coding violations (charge-off coding, duplicate tradelines, re-aging, hardship/forbearance coding, etc.)
+- FDCPA violations related to debt collectors and debt buyers (unvalidated debts, misleading reporting, unfair practices, etc.)
+
+You MUST implement the rules engine and letter generator with the following guarantees:
+
+1. analyzeWithRulesEngine:
+   - Must iterate all enabled rules in the rules catalog.
+   - Must evaluate each rule against the entire CreditReport.
+   - Must emit IssueFlag objects for every detected violation.
+   - Must not randomly sample, short-circuit, or silently drop violations.
+
+2. AI explanations:
+   - Must generate an AiIssueExplanation for every IssueFlag.
+   - Must not skip lower-severity issues; all existing IssueFlags must get explanations.
+
+3. Dispute letters:
+   - For bureau letters, include ALL issues that apply to that bureau (based on the issue’s related account and bureauScope).
+   - For collector letters, include ALL issues that relate to that collector.
+   - Do not filter out violations by severity level unless there is an explicit user-controlled filter. By default, all violations discovered by the rules engine must be represented in the letter body.
+
+This app does NOT provide legal advice, but it MUST be thorough: any potential violation that is represented as a rule in the rules catalog and triggered by the data must be persisted to the database and made available in the UI and generated letters.
+
+In plain language
+
+Any rule you define = must be run.
+
+Any violation detected = must be stored.
+
+Any stored violation for a chosen bureau/collector = must be in the letter.

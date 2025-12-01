@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "mission": "Systematically scan every tradeline, collection, public record, and inquiry for all encoded FCRA, FDCPA, and Metro 2 violations.",
+    "lawsCovered": ["FCRA", "FDCPA", "METRO2"],
+    "guarantee": "For every enabled rule in this catalog, analyzeWithRulesEngine MUST evaluate it against the entire CreditReport. No rule is skipped and no triggered violation is silently dropped."
+  },
+  "rules": [
+    {
+      "id": "FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE",
+      "category": "FCRA",
+      "description": "Same tradeline reports materially different balance or past-due amounts across bureaus for the same debt.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"]
+    },
+    {
+      "id": "FCRA_INCONSISTENT_STATUS_SEVERITY",
+      "category": "FCRA",
+      "description": "Tradeline status severity differs between bureaus (e.g., foreclosure vs 120 days late) for the same underlying mortgage or loan.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"]
+    },
+    {
+      "id": "FCRA_REAGING_DATE_OF_FIRST_DELINQUENCY",
+      "category": "FCRA",
+      "description": "Date of First Delinquency (DOFD) appears to have been moved later to make a derogatory item look newer (re-aging).",
+      "lawReferences": ["FCRA 15 U.S.C. §1681c(a)", "FCRA 15 U.S.C. §1681s-2(a)(5)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE", "COLLECTION"]
+    },
+    {
+      "id": "FCRA_OBSOLETE_DEROGATORY_7_YEARS",
+      "category": "FCRA",
+      "description": "Negative account or collection is still reporting more than 7 years after DOFD.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681c(a)(4)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE", "COLLECTION"]
+    },
+    {
+      "id": "FCRA_MISSING_DISPUTE_MARKER",
+      "category": "FCRA",
+      "description": "Account previously disputed by consumer but is not marked as disputed on one or more bureaus.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681s-2(a)(3)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE", "COLLECTION"]
+    },
+    {
+      "id": "FCRA_DUPLICATE_TRADELINES_SAME_DEBT",
+      "category": "FCRA",
+      "description": "Multiple tradelines appear to represent the same debt, inflating derogatory impact.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"]
+    },
+    {
+      "id": "FCRA_COLLECTION_MISSING_ORIGINAL_CREDITOR",
+      "category": "FCRA",
+      "description": "Collection account does not clearly list the original creditor when expected.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681g(a)", "FCRA 15 U.S.C. §1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"]
+    },
+    {
+      "id": "METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "category": "METRO2",
+      "description": "Charged-off tradeline still shows full balance as past-due, contrary to Metro 2 charge-off guidance.",
+      "lawReferences": ["Metro 2 Consumer Credit Reporting Resource Guide – Charge-off coding"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"]
+    },
+    {
+      "id": "METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT",
+      "category": "METRO2",
+      "description": "Third-party collection is coded as an open revolving/installment account with late history instead of a collection.",
+      "lawReferences": ["Metro 2 guidelines – collection agency reporting"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"]
+    },
+    {
+      "id": "METRO2_SOLD_ACCOUNT_STILL_CHARGEOFF",
+      "category": "METRO2",
+      "description": "Account sold to another lender still carries an active charge-off/collection status instead of pure sold/transferred coding.",
+      "lawReferences": ["Metro 2 guidelines – sold/transferred accounts"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"]
+    },
+    {
+      "id": "FDCPA_COLLECTION_REPORTING_UNVALIDATED",
+      "category": "FDCPA",
+      "description": "Collector continues reporting a disputed debt without proper validation.",
+      "lawReferences": ["FDCPA 15 U.S.C. §1692g", "§1692e", "§1692f"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"]
+    }
+  ]
+}

@@ -1,0 +1,401 @@
+next layer wired in:
+
+A minimal HTML template renderer for both BureauDisputeLetter and FurnisherDisputeLetter.
+
+A /api/dispute-letters/generate endpoint that:
+
+Loads the parsed report + issues + AI explanations
+
+Calls generateAllDisputeLetters
+
+Renders HTML
+
+Converts to PDF via a small htmlToPdfBuffer helper (ready for Replit with html-pdf-node).
+
+You can drop these files right into your repo and then let Replit Agent fill in the DB repo calls.
+
+1️⃣ Minimal HTML template for any dispute letter
+
+File: src/server/services/letters/renderLetterHtml.ts
+
+// src/server/services/letters/renderLetterHtml.ts
+
+import { BureauDisputeLetter, FurnisherDisputeLetter } from './generateAllDisputeLetters';
+
+export type AnyLetter = BureauDisputeLetter | FurnisherDisputeLetter;
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Very simple HTML wrapper for a dispute letter.
+ * - Uses a print-friendly layout
+ * - Preserves newlines from the plain-text body
+ * - Works for bureau or furnisher letters
+ */
+export function renderLetterHtml(letter: AnyLetter): string {
+  const isBureau = (letter as BureauDisputeLetter).bureau !== undefined;
+
+  const toBlock = letter.toAddressLines
+    .map((line) => escapeHtml(line))
+    .join('<br>');
+
+  const subjectHtml = escapeHtml(letter.subject);
+  const bodyHtml = escapeHtml(letter.body).replace(/\n/g, '<br>');
+
+  const headerLabel = isBureau ? 'Credit Bureau Dispute Letter' : 'Furnisher / Collector Dispute Letter';
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${subjectHtml}</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: "Times New Roman", Georgia, serif;
+      font-size: 12pt;
+      line-height: 1.5;
+      color: #000;
+      margin: 0;
+      padding: 0;
+    }
+    .page {
+      width: 8.5in;
+      min-height: 11in;
+      padding: 1in;
+      margin: 0 auto;
+    }
+    .letter-header-label {
+      text-align: right;
+      font-size: 10pt;
+      color: #555;
+      margin-bottom: 0.25in;
+    }
+    .letter-block {
+      margin-bottom: 0.15in;
+    }
+    .letter-body {
+      margin-top: 0.25in;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="letter-header-label">${headerLabel}</div>
+
+    <div class="letter-block">
+      <!-- The body string already includes sender info and [Date] line -->
+      <!-- We just render it as-is -->
+      <div class="letter-body">
+        ${bodyHtml}
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+
+Note: Because your body already includes the consumer header, [Date], subject line text, etc., this template mostly wraps it in a clean, printable layout and preserves line breaks.
+
+2️⃣ Minimal HTML → PDF helper for Replit
+
+File: src/server/services/pdf/htmlToPdf.ts
+
+This uses html-pdf-node, which works nicely in Node/Express.
+Install:
+
+npm install html-pdf-node
+
+// src/server/services/pdf/htmlToPdf.ts
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const html_to_pdf = require('html-pdf-node');
+
+/**
+ * Convert HTML string into a PDF Buffer using html-pdf-node.
+ * In Replit, make sure you've installed `html-pdf-node`.
+ */
+export async function htmlToPdfBuffer(html: string): Promise<Buffer> {
+  const file = { content: html };
+  const options = {
+    format: 'A4',
+    printBackground: true,
+    margin: {
+      top: '10mm',
+      right: '10mm',
+      bottom: '10mm',
+      left: '10mm'
+    }
+  };
+
+  const pdfBuffer: Buffer = await html_to_pdf.generatePdf(file, options);
+  return pdfBuffer;
+}
+
+
+You can later swap this out for Puppeteer, Playwright, or an external PDF API if you prefer—everything else can stay the same.
+
+3️⃣ Wire into /api/dispute-letters/generate
+
+Goal:
+
+POST /api/dispute-letters/generate
+
+Input: reportId and consumer profile (or derive consumer from your user table).
+
+Load:
+
+credit_reports.parsed_json → CreditReport
+
+violations → IssueFlag[]
+
+violation_explanations → AiIssueExplanation[]
+
+Run generateAllDisputeLetters
+
+Render each to HTML
+
+Convert to PDF Buffer
+
+Store PDFs (e.g. in dispute_letters table or filesystem)
+
+Return JSON with IDs + storage paths
+
+Below is an Express-style route with repo calls marked TODO so Replit Agent / you can wire real DB queries.
+
+File: src/server/routes/disputeLetters.ts
+
+// src/server/routes/disputeLetters.ts
+
+import { Router } from 'express';
+import { generateAllDisputeLetters } from '../services/letters/generateAllDisputeLetters';
+import { renderLetterHtml } from '../services/letters/renderLetterHtml';
+import { htmlToPdfBuffer } from '../services/pdf/htmlToPdf';
+import type { ConsumerProfile } from '../services/letters/generateAllDisputeLetters';
+import type { CreditReport } from '../types/credit';
+import type { IssueFlag } from '../rules/ruleImplementations';
+import type { AiIssueExplanation } from '../services/ai/aiIssueExplanation';
+
+const router = Router();
+
+/**
+ * POST /api/dispute-letters/generate
+ *
+ * Body:
+ * {
+ *   reportId: string;
+ *   consumer: ConsumerProfile; // can be derived server-side if you prefer
+ * }
+ *
+ * Response (example):
+ * {
+ *   bureauLetters: [
+ *     { bureau: 'EXPERIAN', pdfStoragePath: '/data/disputes/...pdf' },
+ *     ...
+ *   ],
+ *   furnisherLetters: [
+ *     { furnisherName: 'LVNV Funding LLC', pdfStoragePath: '/data/disputes/...pdf' },
+ *     ...
+ *   ]
+ * }
+ */
+router.post('/api/dispute-letters/generate', async (req, res) => {
+  try {
+    const { reportId, consumer } = req.body as {
+      reportId: string;
+      consumer: ConsumerProfile;
+    };
+
+    if (!reportId) {
+      return res.status(400).json({ error: 'reportId is required' });
+    }
+    if (!consumer || !consumer.fullName || !consumer.addressLine1 || !consumer.city || !consumer.state || !consumer.postalCode) {
+      return res.status(400).json({ error: 'consumer profile is incomplete' });
+    }
+
+    // -----------------------------------------------------------------
+    // 1) Load parsed CreditReport + issues + AI explanations from DB
+    // -----------------------------------------------------------------
+    // TODO: Replace these stubs with your actual DB repository calls
+
+    const report: CreditReport | null = await loadCreditReportById(reportId);
+    if (!report) {
+      return res.status(404).json({ error: 'Credit report not found' });
+    }
+
+    const issues: IssueFlag[] = await loadIssuesForReport(reportId);
+    const aiExplanations: AiIssueExplanation[] = await loadAiExplanationsForReport(reportId);
+
+    // -----------------------------------------------------------------
+    // 2) Generate letters (plain text body)
+    // -----------------------------------------------------------------
+    const { bureauLetters, furnisherLetters } = generateAllDisputeLetters({
+      report,
+      consumer,
+      issues,
+      aiExplanations
+    });
+
+    // -----------------------------------------------------------------
+    // 3) Render HTML + convert to PDF + store
+    // -----------------------------------------------------------------
+    const bureauResults: {
+      bureau: string;
+      pdfStoragePath: string;
+    }[] = [];
+
+    const furnisherResults: {
+      furnisherName: string;
+      pdfStoragePath: string;
+    }[] = [];
+
+    // In a real app, consider using a proper storage service/path.
+    // For Replit prototype, you can write to ./data/disputes/*.pdf
+    for (const letter of bureauLetters) {
+      const html = renderLetterHtml(letter);
+      const pdfBuffer = await htmlToPdfBuffer(html);
+
+      const storagePath = await saveDisputeLetterPdf({
+        reportId,
+        kind: 'BUREAU',
+        label: letter.bureau,
+        pdfBuffer
+      });
+
+      bureauResults.push({
+        bureau: letter.bureau,
+        pdfStoragePath: storagePath
+      });
+    }
+
+    for (const letter of furnisherLetters) {
+      const html = renderLetterHtml(letter);
+      const pdfBuffer = await htmlToPdfBuffer(html);
+
+      const storagePath = await saveDisputeLetterPdf({
+        reportId,
+        kind: 'FURNISHER',
+        label: letter.furnisherName,
+        pdfBuffer
+      });
+
+      furnisherResults.push({
+        furnisherName: letter.furnisherName,
+        pdfStoragePath: storagePath
+      });
+    }
+
+    // -----------------------------------------------------------------
+    // 4) Respond with summary
+    // -----------------------------------------------------------------
+    return res.json({
+      reportId,
+      bureauLetters: bureauResults,
+      furnisherLetters: furnisherResults
+    });
+  } catch (err) {
+    console.error('Error generating dispute letters:', err);
+    return res.status(500).json({ error: 'Failed to generate dispute letters' });
+  }
+});
+
+// ---------------------------------------------------------------------
+// Stubbed repo/storage helpers – tell Replit Agent to implement
+// ---------------------------------------------------------------------
+
+async function loadCreditReportById(reportId: string): Promise<CreditReport | null> {
+  // TODO: replace with DB query:
+  // SELECT parsed_json FROM credit_reports WHERE id = $1
+  // return parsed_json as CreditReport;
+  throw new Error('loadCreditReportById not implemented');
+}
+
+async function loadIssuesForReport(reportId: string): Promise<IssueFlag[]> {
+  // TODO: replace with DB query:
+  // SELECT ... FROM violations WHERE credit_report_id = $1
+  throw new Error('loadIssuesForReport not implemented');
+}
+
+async function loadAiExplanationsForReport(reportId: string): Promise<AiIssueExplanation[]> {
+  // TODO: replace with DB query:
+  // SELECT ... FROM violation_explanations WHERE credit_report_id = $1
+  throw new Error('loadAiExplanationsForReport not implemented');
+}
+
+async function saveDisputeLetterPdf(params: {
+  reportId: string;
+  kind: 'BUREAU' | 'FURNISHER';
+  label: string; // bureau name or furnisher name
+  pdfBuffer: Buffer;
+}): Promise<string> {
+  // TODO: implement file or DB storage.
+  // Minimal Replit version: write to ./data/disputes/{reportId}-{kind}-{slugifiedLabel}.pdf
+  // and insert a row into dispute_letters table if you have it.
+
+  const fs = await import('fs');
+  const path = await import('path');
+
+  const safeLabel = params.label.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+  const baseDir = path.resolve(process.cwd(), 'data', 'disputes');
+  if (!fs.existsSync(baseDir)) {
+    fs.mkdirSync(baseDir, { recursive: true });
+  }
+
+  const filename = `${params.reportId}-${params.kind}-${safeLabel}.pdf`;
+  const fullPath = path.join(baseDir, filename);
+
+  await fs.promises.writeFile(fullPath, params.pdfBuffer);
+
+  // You can later map this to a public URL or store in DB.
+  return fullPath;
+}
+
+export default router;
+
+How this fits your overall pipeline
+
+End-to-end flow now looks like:
+
+User uploads report
+POST /api/credit-reports/upload
+
+Uses parseCreditReportWithAiOnly (tri-merge aware)
+
+Saves credit_reports.parsed_json
+
+Runs analyzeWithRulesEngine → saves violations
+
+Calls generateAiExplanationsForIssues → saves violation_explanations.
+
+User clicks “Generate Dispute Letters” in UI
+Frontend calls:
+
+await fetch('/api/dispute-letters/generate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ reportId, consumer })
+});
+
+
+Backend does exactly what you asked:
+
+Pulls the parsed report + all FCRA / Metro 2 / FDCPA violations.
+
+Uses all AI explanations (no violations left out).
+
+Groups them per tradeline/collection.
+
+Generates bureau + furnisher letters, renders HTML, converts to PDF.
+
+Stores PDFs and returns paths for your UI to download/view.

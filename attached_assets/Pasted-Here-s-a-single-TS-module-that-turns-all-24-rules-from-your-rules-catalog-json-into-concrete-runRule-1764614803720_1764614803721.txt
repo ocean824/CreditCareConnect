@@ -1,0 +1,1491 @@
+Here’s a single TS module that turns all 24 rules from your rules_catalog.json into concrete runRule_* implementations wired to an IssueFlag type.
+
+Each function has the signature:
+runRule_RULEID(report: CreditReport, userId: string): IssueFlag[]
+
+Logic is “real” but still conservative (no wild guessing); places that need extra system metadata (DV logs, lawsuit logs, etc.) are clearly marked with TODO so Replit can wire them.
+
+You can split this file into fcraRules.ts, metro2Rules.ts, fdcpaRules.ts if you prefer; the code is written to be drop-in.
+
+🔧 Adjust import paths (../types/credit, ../types/issues) to match your repo.
+
+// src/server/services/rules/ruleImplementations.ts
+
+import {
+  CreditReport,
+  Tradeline,
+  CollectionAccount,
+  PublicRecord,
+  AccountStatus,
+  CollectionStatus
+} from '../types/credit'; // <- adjust path
+
+// ---------------------------------------------------------------------
+// Shared rule types / IssueFlag wiring
+// ---------------------------------------------------------------------
+
+export type RuleCategory = 'FCRA' | 'METRO2' | 'FDCPA' | 'OTHER';
+
+export type ViolationSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export interface RelatedAccountRef {
+  type: 'TRADELINE' | 'COLLECTION' | 'PUBLIC_RECORD' | 'INQUIRY';
+  tradelineId?: string;
+  collectionId?: string;
+  publicRecordId?: string;
+  inquiryId?: string;
+  bureaus?: ('EXPERIAN' | 'EQUIFAX' | 'TRANSUNION')[];
+  creditorName?: string;
+  collectorName?: string;
+  originalCreditorName?: string | null;
+}
+
+export interface IssueFlag {
+  id: string;
+  ruleId: string;
+  category: RuleCategory;
+  severity: ViolationSeverity;
+  description: string;
+  lawReferences: string[];
+  relatedAccount: RelatedAccountRef;
+  details?: Record<string, unknown>;
+  createdAt: string; // ISO
+}
+
+// AiIssueExplanation is generated later; rules only emit IssueFlag.
+// Keeping here just as a reference for your explanation engine.
+export interface AiIssueExplanation {
+  issueId: string;
+  model: string;
+  summary: string;
+  fullText: string;
+  rawJson?: unknown;
+}
+
+// ---------------------------------------------------------------------
+// Helper constants & functions
+// ---------------------------------------------------------------------
+
+const STATUS_SEVERITY: Record<AccountStatus, number> = {
+  OPEN: 0,
+  CLOSED: 0,
+  CURRENT: 0,
+  LATE_30: 1,
+  LATE_60: 2,
+  LATE_90: 3,
+  LATE_120: 4,
+  LATE_150_PLUS: 5,
+  COLLECTION: 5,
+  CHARGE_OFF: 5,
+  FORECLOSURE: 6,
+  REPOSSESSION: 6,
+  UNKNOWN: 0
+};
+
+const COLLECTION_STATUS_SEVERITY: Record<CollectionStatus, number> = {
+  OPEN_COLLECTION: 2,
+  PAID_COLLECTION: 1,
+  SETTLED: 1,
+  UNKNOWN: 0
+};
+
+const DEROG_STATUSES: AccountStatus[] = [
+  'LATE_30',
+  'LATE_60',
+  'LATE_90',
+  'LATE_120',
+  'LATE_150_PLUS',
+  'COLLECTION',
+  'CHARGE_OFF',
+  'FORECLOSURE',
+  'REPOSSESSION'
+];
+
+function isDerogatoryStatus(status: AccountStatus): boolean {
+  return DEROG_STATUSES.includes(status);
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function makeIssue(params: {
+  ruleId: string;
+  category: RuleCategory;
+  severity: ViolationSeverity;
+  description: string;
+  lawReferences: string[];
+  relatedAccount: RelatedAccountRef;
+  details?: Record<string, unknown>;
+}): IssueFlag {
+  const { ruleId, category, severity, description, lawReferences, relatedAccount, details } =
+    params;
+  return {
+    id: `${ruleId}:${relatedAccount.tradelineId || relatedAccount.collectionId || relatedAccount.publicRecordId || 'global'}:${Math.random()
+      .toString(36)
+      .slice(2, 8)}`,
+    ruleId,
+    category,
+    severity,
+    description,
+    lawReferences,
+    relatedAccount,
+    details,
+    createdAt: nowIso()
+  };
+}
+
+function normalizeName(name?: string | null): string {
+  return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function safeNumber(n: number | null | undefined): number | null {
+  if (n === null || n === undefined || Number.isNaN(n)) return null;
+  return n;
+}
+
+function diffInDays(dateA: string, dateB: string): number | null {
+  if (!dateA || !dateB) return null;
+  const a = new Date(dateA);
+  const b = new Date(dateB);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+  const ms = b.getTime() - a.getTime();
+  return Math.round(ms / (1000 * 60 * 60 * 24));
+}
+
+function extractDateFromText(text: string): string | null {
+  // Try ISO yyyy-mm-dd
+  const isoMatch = text.match(/\b(20\d{2}|19\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b/);
+  if (isoMatch) return isoMatch[0];
+
+  // Try mm/dd/yyyy
+  const usMatch = text.match(
+    /\b(0?[1-9]|1[0-2])[/-](0?[1-9]|[12]\d|3[01])[/-](19|20)\d{2}\b/
+  );
+  if (usMatch) {
+    const [mm, dd, yyyy] = usMatch[0].split(/[/-]/);
+    const m = mm.padStart(2, '0');
+    const d = dd.padStart(2, '0');
+    return `${yyyy}-${m}-${d}`;
+  }
+
+  return null;
+}
+
+function extractPossibleDofdFromRemarks(remarks?: string[]): string | null {
+  if (!remarks || remarks.length === 0) return null;
+  const joined = remarks.join(' ');
+  // Look for explicit DOFD labels or similar
+  const labelMatch = joined.match(/(dofd|date of first delinquency)[:\s]+([^.;]+)/i);
+  if (labelMatch && labelMatch[2]) {
+    const fromLabel = extractDateFromText(labelMatch[2]);
+    if (fromLabel) return fromLabel;
+  }
+  return extractDateFromText(joined);
+}
+
+function normalizeGroupKeyForTradeline(t: Tradeline): string {
+  return [
+    'T',
+    normalizeName(t.creditorName),
+    t.accountNumberLast4 || '',
+    t.type
+  ].join('|');
+}
+
+function normalizeGroupKeyForCollection(c: CollectionAccount): string {
+  return [
+    'C',
+    normalizeName(c.collectorName),
+    normalizeName(c.originalCreditorName || ''),
+    Math.round((c.balance ?? 0) / 10) * 10 // group by ~nearest $10
+  ].join('|');
+}
+
+// ---------------------------------------------------------------------
+// 1) FCRA RULES
+// ---------------------------------------------------------------------
+
+// 1. FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE
+export function runRule_FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FCRA 15 U.S.C. §1681e(b)'];
+
+  for (const tl of report.tradelines) {
+    if (!tl.bureauSnapshots || tl.bureauSnapshots.length <= 1) continue;
+
+    const balances = tl.bureauSnapshots.map((bs) => safeNumber(bs.balance) ?? 0);
+    const pastDues = tl.bureauSnapshots.map((bs) => safeNumber(bs.pastDue) ?? 0);
+
+    const maxBal = Math.max(...balances);
+    const minBal = Math.min(...balances);
+    const maxPast = Math.max(...pastDues);
+    const minPast = Math.min(...pastDues);
+
+    const BAL_THRESHOLD = 5; // $5 tolerance
+    const PAST_DUE_THRESHOLD = 5;
+
+    const balanceDiff = maxBal - minBal;
+    const pastDiff = maxPast - minPast;
+
+    if (balanceDiff > BAL_THRESHOLD || pastDiff > PAST_DUE_THRESHOLD) {
+      issues.push(
+        makeIssue({
+          ruleId: 'FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE',
+          category: 'FCRA',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Tradeline "${tl.creditorName}" shows materially different balance and/or past-due amounts across bureaus.`,
+          relatedAccount: {
+            type: 'TRADELINE',
+            tradelineId: tl.id,
+            bureaus: tl.bureaus,
+            creditorName: tl.creditorName
+          },
+          details: {
+            balancesByBureau: Object.fromEntries(
+              tl.bureauSnapshots.map((bs) => [bs.bureau, bs.balance])
+            ),
+            pastDueByBureau: Object.fromEntries(
+              tl.bureauSnapshots.map((bs) => [bs.bureau, bs.pastDue])
+            ),
+            balanceDiff,
+            pastDiff
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// 2. FCRA_INCONSISTENT_STATUS_SEVERITY
+export function runRule_FCRA_INCONSISTENT_STATUS_SEVERITY(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FCRA 15 U.S.C. §1681e(b)'];
+
+  for (const tl of report.tradelines) {
+    if (!tl.bureauSnapshots || tl.bureauSnapshots.length <= 1) continue;
+
+    const severities = tl.bureauSnapshots.map((bs) => STATUS_SEVERITY[bs.status]);
+    const maxSeverity = Math.max(...severities);
+    const minSeverity = Math.min(...severities);
+
+    if (maxSeverity - minSeverity >= 2) {
+      issues.push(
+        makeIssue({
+          ruleId: 'FCRA_INCONSISTENT_STATUS_SEVERITY',
+          category: 'FCRA',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Tradeline "${tl.creditorName}" has significantly different status/severity across bureaus (e.g., foreclosure vs. 120 days late).`,
+          relatedAccount: {
+            type: 'TRADELINE',
+            tradelineId: tl.id,
+            bureaus: tl.bureaus,
+            creditorName: tl.creditorName
+          },
+          details: {
+            statusByBureau: Object.fromEntries(
+              tl.bureauSnapshots.map((bs) => [bs.bureau, bs.status])
+            ),
+            severities
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// 3. FCRA_REAGING_DATE_OF_FIRST_DELINQUENCY
+export function runRule_FCRA_REAGING_DATE_OF_FIRST_DELINQUENCY(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FCRA 15 U.S.C. §1681c(a)', 'FCRA 15 U.S.C. §1681s-2(a)(5)'];
+
+  const reportDate = report.meta?.reportDate || '';
+
+  for (const tl of report.tradelines) {
+    const dofd = extractPossibleDofdFromRemarks(tl.remarks);
+    if (!dofd || !reportDate) continue;
+
+    const days = diffInDays(dofd, reportDate);
+    if (days === null) continue;
+
+    // Re-aging suspicion: DOFD is after reportDate (impossible) or DOFD is extremely recent for a charge-off
+    const statusIsChargeOffOrCollection =
+      tl.status === 'CHARGE_OFF' || tl.status === 'COLLECTION' || tl.status === 'FORECLOSURE';
+
+    if (days < 0 || (statusIsChargeOffOrCollection && days < 180)) {
+      issues.push(
+        makeIssue({
+          ruleId: 'FCRA_REAGING_DATE_OF_FIRST_DELINQUENCY',
+          category: 'FCRA',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Tradeline "${tl.creditorName}" appears to have a Date of First Delinquency that is inconsistent or suspiciously recent for its derogatory status (possible re-aging).`,
+          relatedAccount: {
+            type: 'TRADELINE',
+            tradelineId: tl.id,
+            bureaus: tl.bureaus,
+            creditorName: tl.creditorName
+          },
+          details: {
+            dofd,
+            reportDate,
+            daysBetweenDofdAndReport: days,
+            status: tl.status
+          }
+        })
+      );
+    }
+  }
+
+  // Collections re-aging would require DOFD for collections too. If your parser
+  // puts DOFD into collection.remarks, you can mirror the same logic here.
+
+  return issues;
+}
+
+// 4. FCRA_OBSOLETE_DEROGATORY_7_YEARS
+export function runRule_FCRA_OBSOLETE_DEROGATORY_7_YEARS(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FCRA 15 U.S.C. §1681c(a)(4)'];
+  const reportDate = report.meta?.reportDate || '';
+  if (!reportDate) return issues;
+
+  const sevenYearsDays = 7 * 365;
+
+  for (const tl of report.tradelines) {
+    if (!isDerogatoryStatus(tl.status)) continue;
+    const dofd = extractPossibleDofdFromRemarks(tl.remarks);
+    if (!dofd) continue;
+    const days = diffInDays(dofd, reportDate);
+    if (days !== null && days > sevenYearsDays) {
+      issues.push(
+        makeIssue({
+          ruleId: 'FCRA_OBSOLETE_DEROGATORY_7_YEARS',
+          category: 'FCRA',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Tradeline "${tl.creditorName}" appears to be older than 7 years from DOFD but is still reporting as derogatory.`,
+          relatedAccount: {
+            type: 'TRADELINE',
+            tradelineId: tl.id,
+            bureaus: tl.bureaus,
+            creditorName: tl.creditorName
+          },
+          details: { dofd, reportDate, daysSinceDofd: days, status: tl.status }
+        })
+      );
+    }
+  }
+
+  for (const col of report.collections) {
+    const dofd = extractPossibleDofdFromRemarks(col.remarks);
+    if (!dofd) continue;
+    const days = diffInDays(dofd, reportDate);
+    if (days !== null && days > sevenYearsDays) {
+      issues.push(
+        makeIssue({
+          ruleId: 'FCRA_OBSOLETE_DEROGATORY_7_YEARS',
+          category: 'FCRA',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Collection from "${col.collectorName}" appears to be older than 7 years from DOFD but is still reporting.`,
+          relatedAccount: {
+            type: 'COLLECTION',
+            collectionId: col.id,
+            bureaus: col.bureaus,
+            collectorName: col.collectorName,
+            originalCreditorName: col.originalCreditorName ?? null
+          },
+          details: { dofd, reportDate, daysSinceDofd: days }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// 5. FCRA_MISSING_DISPUTE_MARKER
+export function runRule_FCRA_MISSING_DISPUTE_MARKER(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FCRA 15 U.S.C. §1681s-2(a)(3)'];
+
+  // Optional metadata that your system can attach:
+  // meta.disputedTradelineIds: string[]; meta.disputedCollectionIds: string[]
+  const metaAny = report.meta as any;
+  const disputedTradelineIds: string[] = metaAny?.disputedTradelineIds ?? [];
+  const disputedCollectionIds: string[] = metaAny?.disputedCollectionIds ?? [];
+
+  const disputeMarkers = [
+    'account information disputed by consumer',
+    'consumer disputes this account',
+    'consumer disputes',
+    'customer disputes',
+    'customer disagrees'
+  ];
+
+  const hasDisputeMarker = (remarks?: string[]): boolean => {
+    if (!remarks) return false;
+    const joined = remarks.join(' ').toLowerCase();
+    return disputeMarkers.some((x) => joined.includes(x));
+  };
+
+  for (const tl of report.tradelines) {
+    if (!disputedTradelineIds.includes(tl.id)) continue;
+    if (!hasDisputeMarker(tl.remarks)) {
+      issues.push(
+        makeIssue({
+          ruleId: 'FCRA_MISSING_DISPUTE_MARKER',
+          category: 'FCRA',
+          severity: 'MEDIUM',
+          lawReferences: lawRefs,
+          description: `Tradeline "${tl.creditorName}" was disputed by the consumer, but the credit report does not clearly show a dispute notation.`,
+          relatedAccount: {
+            type: 'TRADELINE',
+            tradelineId: tl.id,
+            bureaus: tl.bureaus,
+            creditorName: tl.creditorName
+          }
+        })
+      );
+    }
+  }
+
+  for (const col of report.collections) {
+    if (!disputedCollectionIds.includes(col.id)) continue;
+    if (!hasDisputeMarker(col.remarks)) {
+      issues.push(
+        makeIssue({
+          ruleId: 'FCRA_MISSING_DISPUTE_MARKER',
+          category: 'FCRA',
+          severity: 'MEDIUM',
+          lawReferences: lawRefs,
+          description: `Collection from "${col.collectorName}" was disputed by the consumer, but the credit report does not clearly show a dispute notation.`,
+          relatedAccount: {
+            type: 'COLLECTION',
+            collectionId: col.id,
+            bureaus: col.bureaus,
+            collectorName: col.collectorName,
+            originalCreditorName: col.originalCreditorName ?? null
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// 6. FCRA_FORBEARANCE_OR_HARDSHIP_REPORTED_LATE
+export function runRule_FCRA_FORBEARANCE_OR_HARDSHIP_REPORTED_LATE(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FCRA 15 U.S.C. §1681e(b)', 'CARES Act accommodation guidance'];
+
+  const hardshipKeywords = [
+    'forbearance',
+    'hardship',
+    'loan modified',
+    'loan modification',
+    'federal govt plan',
+    'fedrl govt plan',
+    'federal government plan',
+    'covid',
+    'accommodation'
+  ];
+
+  const isSeriousLate = (status: AccountStatus) =>
+    status === 'LATE_60' ||
+    status === 'LATE_90' ||
+    status === 'LATE_120' ||
+    status === 'LATE_150_PLUS' ||
+    status === 'CHARGE_OFF' ||
+    status === 'FORECLOSURE';
+
+  for (const tl of report.tradelines) {
+    const remarksText = (tl.remarks || []).join(' ').toLowerCase();
+    const hasHardship = hardshipKeywords.some((k) => remarksText.includes(k));
+    if (!hasHardship) continue;
+
+    const seriousLateSnapshot = tl.bureauSnapshots?.find((bs) =>
+      isSeriousLate(bs.status)
+    );
+    if (!seriousLateSnapshot) continue;
+
+    issues.push(
+      makeIssue({
+        ruleId: 'FCRA_FORBEARANCE_OR_HARDSHIP_REPORTED_LATE',
+        category: 'FCRA',
+        severity: 'HIGH',
+        lawReferences: lawRefs,
+        description: `Tradeline "${tl.creditorName}" appears to be in forbearance/modification/relief but is still reported with serious late codes, which may be inaccurate or misleading under FCRA and related guidance.`,
+        relatedAccount: {
+          type: 'TRADELINE',
+          tradelineId: tl.id,
+          bureaus: tl.bureaus,
+          creditorName: tl.creditorName
+        },
+        details: {
+          hardshipRemarks: tl.remarks,
+          bureauStatuses: tl.bureauSnapshots.map((bs) => ({
+            bureau: bs.bureau,
+            status: bs.status
+          }))
+        }
+      })
+    );
+  }
+
+  return issues;
+}
+
+// 7. FCRA_DUPLICATE_TRADELINES_SAME_DEBT
+export function runRule_FCRA_DUPLICATE_TRADELINES_SAME_DEBT(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FCRA 15 U.S.C. §1681e(b)'];
+
+  const byKey = new Map<string, Tradeline[]>();
+  for (const tl of report.tradelines) {
+    const key = normalizeGroupKeyForTradeline(tl);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(tl);
+  }
+
+  for (const [key, group] of byKey) {
+    if (group.length <= 1) continue;
+    const derogCount = group.filter((g) => isDerogatoryStatus(g.status)).length;
+    if (derogCount <= 1) continue;
+
+    const first = group[0];
+    issues.push(
+      makeIssue({
+        ruleId: 'FCRA_DUPLICATE_TRADELINES_SAME_DEBT',
+        category: 'FCRA',
+        severity: 'HIGH',
+        lawReferences: lawRefs,
+        description: `Multiple tradelines appear to represent the same underlying debt with "${first.creditorName}", which can inflate derogatory impact.`,
+        relatedAccount: {
+          type: 'TRADELINE',
+          tradelineId: first.id,
+          bureaus: first.bureaus,
+          creditorName: first.creditorName
+        },
+        details: {
+          key,
+          tradelineIds: group.map((g) => g.id)
+        }
+      })
+    );
+  }
+
+  return issues;
+}
+
+// 8. FCRA_INCORRECT_OPEN_CLOSED_STATUS
+export function runRule_FCRA_INCORRECT_OPEN_CLOSED_STATUS(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FCRA 15 U.S.C. §1681e(b)'];
+
+  const closeKeywords = ['paid in full', 'paid', 'closed', 'transferred', 'purchased by another lender', 'sold to'];
+
+  for (const tl of report.tradelines) {
+    const remarksText = (tl.remarks || []).join(' ').toLowerCase();
+    const hasClose = closeKeywords.some((k) => remarksText.includes(k));
+    const isOpenish = tl.status === 'OPEN' || tl.status === 'CURRENT';
+    if (!hasClose || !isOpenish) continue;
+
+    issues.push(
+      makeIssue({
+        ruleId: 'FCRA_INCORRECT_OPEN_CLOSED_STATUS',
+        category: 'FCRA',
+        severity: 'HIGH',
+        lawReferences: lawRefs,
+        description: `Tradeline "${tl.creditorName}" appears paid/closed/transferred by remark, but is still reported as open/current.`,
+        relatedAccount: {
+          type: 'TRADELINE',
+          tradelineId: tl.id,
+          bureaus: tl.bureaus,
+          creditorName: tl.creditorName
+        },
+        details: {
+          status: tl.status,
+          remarks: tl.remarks
+        }
+      })
+    );
+  }
+
+  return issues;
+}
+
+// 9. FCRA_COLLECTION_MISSING_ORIGINAL_CREDITOR
+export function runRule_FCRA_COLLECTION_MISSING_ORIGINAL_CREDITOR(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FCRA 15 U.S.C. §1681g(a)', 'FCRA 15 U.S.C. §1681e(b)'];
+
+  for (const col of report.collections) {
+    const name = (col.originalCreditorName || '').trim().toLowerCase();
+    if (!name || name === 'unknown' || name === 'n/a') {
+      issues.push(
+        makeIssue({
+          ruleId: 'FCRA_COLLECTION_MISSING_ORIGINAL_CREDITOR',
+          category: 'FCRA',
+          severity: 'MEDIUM',
+          lawReferences: lawRefs,
+          description: `Collection from "${col.collectorName}" does not clearly list the original creditor, which can be incomplete or misleading.`,
+          relatedAccount: {
+            type: 'COLLECTION',
+            collectionId: col.id,
+            bureaus: col.bureaus,
+            collectorName: col.collectorName,
+            originalCreditorName: col.originalCreditorName ?? null
+          },
+          details: {
+            remarks: col.remarks
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// 10. FCRA_PUBLIC_RECORD_AMOUNT_OR_COURT_MISMATCH
+export function runRule_FCRA_PUBLIC_RECORD_AMOUNT_OR_COURT_MISMATCH(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FCRA 15 U.S.C. §1681e(b)'];
+
+  for (const pr of report.publicRecords) {
+    const amount = safeNumber(pr.amount);
+    const court = (pr.courtName || '').trim();
+    const courtLower = court.toLowerCase();
+
+    const badAmount = amount !== null && amount < 0;
+    const missingCourt = !court || courtLower === 'unknown' || courtLower === 'n/a';
+
+    if (badAmount || missingCourt) {
+      issues.push(
+        makeIssue({
+          ruleId: 'FCRA_PUBLIC_RECORD_AMOUNT_OR_COURT_MISMATCH',
+          category: 'FCRA',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Public record "${pr.type}" has suspicious amount or missing/mismatched court information.`,
+          relatedAccount: {
+            type: 'PUBLIC_RECORD',
+            publicRecordId: pr.id,
+            bureaus: pr.bureaus
+          },
+          details: {
+            amount,
+            courtName: pr.courtName
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// ---------------------------------------------------------------------
+// 2) METRO 2 RULES
+// ---------------------------------------------------------------------
+
+// 11. METRO2_CHARGEOFF_PAST_DUE_NONZERO
+export function runRule_METRO2_CHARGEOFF_PAST_DUE_NONZERO(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['Metro 2 CCRRG – Charge-off coding'];
+
+  for (const tl of report.tradelines) {
+    if (tl.status !== 'CHARGE_OFF') continue;
+    const pastDue = safeNumber(tl.pastDue);
+    if (pastDue === null || pastDue <= 0) continue;
+
+    issues.push(
+      makeIssue({
+        ruleId: 'METRO2_CHARGEOFF_PAST_DUE_NONZERO',
+        category: 'METRO2',
+        severity: 'HIGH',
+        lawReferences: lawRefs,
+        description: `Charged-off tradeline "${tl.creditorName}" still reports a non-zero past-due amount, which is inconsistent with standard Metro 2 charge-off coding.`,
+        relatedAccount: {
+          type: 'TRADELINE',
+          tradelineId: tl.id,
+          bureaus: tl.bureaus,
+          creditorName: tl.creditorName
+        },
+        details: {
+          status: tl.status,
+          balance: tl.balance,
+          pastDue: tl.pastDue
+        }
+      })
+    );
+  }
+
+  return issues;
+}
+
+// 12. METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT
+export function runRule_METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['Metro 2 CCRRG – Collection agency reporting'];
+
+  const lateKeywords = ['late', '30 days', '60 days', '90 days', '120 days'];
+
+  for (const col of report.collections) {
+    const remarksText = (col.remarks || []).join(' ').toLowerCase();
+    const hasLateLanguage = lateKeywords.some((k) => remarksText.includes(k));
+
+    // If a collection is described like an open account with late history, flag it.
+    if (hasLateLanguage) {
+      issues.push(
+        makeIssue({
+          ruleId: 'METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT',
+          category: 'METRO2',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Collection from "${col.collectorName}" appears to be reported as an open account with late-payment history instead of a pure collection.`,
+          relatedAccount: {
+            type: 'COLLECTION',
+            collectionId: col.id,
+            bureaus: col.bureaus,
+            collectorName: col.collectorName,
+            originalCreditorName: col.originalCreditorName ?? null
+          },
+          details: {
+            remarks: col.remarks
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// 13. METRO2_SOLD_ACCOUNT_STILL_CHARGEOFF
+export function runRule_METRO2_SOLD_ACCOUNT_STILL_CHARGEOFF(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['Metro 2 CCRRG – Sold/transferred accounts'];
+
+  const soldKeywords = ['purchased by another lender', 'sold to', 'purchased by', 'sold/transfer'];
+
+  for (const tl of report.tradelines) {
+    const remarksText = (tl.remarks || []).join(' ').toLowerCase();
+    const isSold = soldKeywords.some((k) => remarksText.includes(k));
+    if (!isSold) continue;
+
+    const isActiveChargeoffOrCollection =
+      tl.status === 'CHARGE_OFF' || tl.status === 'COLLECTION';
+
+    if (isActiveChargeoffOrCollection) {
+      issues.push(
+        makeIssue({
+          ruleId: 'METRO2_SOLD_ACCOUNT_STILL_CHARGEOFF',
+          category: 'METRO2',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Tradeline "${tl.creditorName}" is marked as sold/transferred but is still presented as an active charge-off/collection instead of a pure sold/transferred status.`,
+          relatedAccount: {
+            type: 'TRADELINE',
+            tradelineId: tl.id,
+            bureaus: tl.bureaus,
+            creditorName: tl.creditorName
+          },
+          details: {
+            status: tl.status,
+            remarks: tl.remarks
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// 14. METRO2_MISSING_HARDSHIP_OR_FORBEARANCE_CODE
+export function runRule_METRO2_MISSING_HARDSHIP_OR_FORBEARANCE_CODE(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['Metro 2 CCRRG – Special Comment Codes', 'CARES Act guidance'];
+
+  const hardshipKeywords = [
+    'forbearance',
+    'hardship',
+    'loan modified',
+    'loan modification',
+    'federal govt plan',
+    'fedrl govt plan',
+    'federal government plan',
+    'covid',
+    'accommodation'
+  ];
+
+  for (const tl of report.tradelines) {
+    const remarksText = (tl.remarks || []).join(' ').toLowerCase();
+    const hasHardship = hardshipKeywords.some((k) => remarksText.includes(k));
+    if (!hasHardship) continue;
+
+    const seriousLateSnapshot = tl.bureauSnapshots?.find(
+      (bs) => STATUS_SEVERITY[bs.status] >= STATUS_SEVERITY['LATE_60']
+    );
+    if (!seriousLateSnapshot) continue;
+
+    issues.push(
+      makeIssue({
+        ruleId: 'METRO2_MISSING_HARDSHIP_OR_FORBEARANCE_CODE',
+        category: 'METRO2',
+        severity: 'HIGH',
+        lawReferences: lawRefs,
+        description: `Tradeline "${tl.creditorName}" references a modification/relief/forbearance plan but still has serious late codes without clear hardship coding, which may violate Metro 2 best practices.`,
+        relatedAccount: {
+          type: 'TRADELINE',
+          tradelineId: tl.id,
+          bureaus: tl.bureaus,
+          creditorName: tl.creditorName
+        },
+        details: {
+          remarks: tl.remarks,
+          bureauStatuses: tl.bureauSnapshots.map((bs) => ({
+            bureau: bs.bureau,
+            status: bs.status
+          }))
+        }
+      })
+    );
+  }
+
+  return issues;
+}
+
+// 15. METRO2_INCONSISTENT_CREDIT_LIMIT_OR_LOAN_AMOUNT
+export function runRule_METRO2_INCONSISTENT_CREDIT_LIMIT_OR_LOAN_AMOUNT(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  // NOTE: This rule assumes your parser eventually attaches either:
+  // - (tl as any).creditLimitByBureau: Record<bureau, number>
+  // - or (tl as any).originalLoanAmountByBureau: Record<bureau, number>
+  // Right now it is conservative and only fires if such metadata is present.
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['Metro 2 CCRRG – High Credit / Credit Limit fields'];
+
+  for (const tl of report.tradelines) {
+    const anyTl = tl as any;
+    const limitByBureau: Record<string, number> | undefined = anyTl.creditLimitByBureau;
+    const origByBureau: Record<string, number> | undefined =
+      anyTl.originalLoanAmountByBureau;
+
+    const source = limitByBureau || origByBureau;
+    if (!source) continue;
+
+    const values = Object.values(source);
+    if (values.length <= 1) continue;
+
+    const maxVal = Math.max(...values);
+    const minVal = Math.min(...values);
+    const diff = maxVal - minVal;
+
+    const THRESHOLD = 100; // $100 difference threshold
+
+    if (diff > THRESHOLD) {
+      issues.push(
+        makeIssue({
+          ruleId: 'METRO2_INCONSISTENT_CREDIT_LIMIT_OR_LOAN_AMOUNT',
+          category: 'METRO2',
+          severity: 'MEDIUM',
+          lawReferences: lawRefs,
+          description: `Tradeline "${tl.creditorName}" shows materially different credit limit / original loan amounts across bureaus.`,
+          relatedAccount: {
+            type: 'TRADELINE',
+            tradelineId: tl.id,
+            bureaus: tl.bureaus,
+            creditorName: tl.creditorName
+          },
+          details: {
+            valuesByBureau: source,
+            diff
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// 16. METRO2_COLLECTION_PAST_DUE_NONZERO
+export function runRule_METRO2_COLLECTION_PAST_DUE_NONZERO(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['Metro 2 CCRRG – Collection agency fields'];
+
+  for (const col of report.collections) {
+    const anyCol = col as any;
+    const snapshots = col.bureauSnapshots || [];
+    for (const bs of snapshots) {
+      const pastDue = safeNumber(bs.pastDue);
+      if (pastDue !== null && pastDue > 0) {
+        issues.push(
+          makeIssue({
+            ruleId: 'METRO2_COLLECTION_PAST_DUE_NONZERO',
+            category: 'METRO2',
+            severity: 'MEDIUM',
+            lawReferences: lawRefs,
+            description: `Collection from "${col.collectorName}" reports a non-zero 'past due' amount instead of using standard collection balance fields.`,
+            relatedAccount: {
+              type: 'COLLECTION',
+              collectionId: col.id,
+              bureaus: col.bureaus,
+              collectorName: col.collectorName,
+              originalCreditorName: col.originalCreditorName ?? null
+            },
+            details: {
+              bureau: bs.bureau,
+              pastDue,
+              balance: bs.balance
+            }
+          })
+        );
+      }
+    }
+  }
+
+  return issues;
+}
+
+// 17. METRO2_DUPLICATE_COLLECTIONS_SAME_DEBT
+export function runRule_METRO2_DUPLICATE_COLLECTIONS_SAME_DEBT(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['Metro 2 CCRRG – Transferred/sold collection accounts'];
+
+  const byKey = new Map<string, CollectionAccount[]>();
+
+  for (const col of report.collections) {
+    const key = normalizeGroupKeyForCollection(col);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(col);
+  }
+
+  for (const [key, group] of byKey) {
+    if (group.length <= 1) continue;
+    const activeCount = group.filter(
+      (c) => c.status === 'OPEN_COLLECTION' || c.status === 'UNKNOWN'
+    ).length;
+    if (activeCount <= 1) continue;
+
+    const first = group[0];
+
+    issues.push(
+      makeIssue({
+        ruleId: 'METRO2_DUPLICATE_COLLECTIONS_SAME_DEBT',
+        category: 'METRO2',
+        severity: 'HIGH',
+        lawReferences: lawRefs,
+        description: `Multiple collection entries appear to represent the same underlying debt from "${first.collectorName}/${first.originalCreditorName || ''}", which is inconsistent with Metro 2 best practices.`,
+        relatedAccount: {
+          type: 'COLLECTION',
+          collectionId: first.id,
+          bureaus: first.bureaus,
+          collectorName: first.collectorName,
+          originalCreditorName: first.originalCreditorName ?? null
+        },
+        details: {
+          key,
+          collectionIds: group.map((g) => g.id)
+        }
+      })
+    );
+  }
+
+  return issues;
+}
+
+// 18. METRO2_BANKRUPTCY_ACCOUNT_STILL_OPEN
+export function runRule_METRO2_BANKRUPTCY_ACCOUNT_STILL_OPEN(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['Metro 2 CCRRG – Bankruptcy coding'];
+
+  const bkKeywords = ['included in bankruptcy', 'chapter 7', 'chapter 13', 'bankruptcy'];
+
+  for (const tl of report.tradelines) {
+    const remarksText = (tl.remarks || []).join(' ').toLowerCase();
+    const hasBk = bkKeywords.some((k) => remarksText.includes(k));
+    if (!hasBk) continue;
+
+    if ((tl.status === 'OPEN' || tl.status === 'CURRENT') && (tl.balance ?? 0) > 0) {
+      issues.push(
+        makeIssue({
+          ruleId: 'METRO2_BANKRUPTCY_ACCOUNT_STILL_OPEN',
+          category: 'METRO2',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Tradeline "${tl.creditorName}" shows bankruptcy-related remarks but is still coded as open/current with a balance, which may violate Metro 2 bankruptcy reporting standards.`,
+          relatedAccount: {
+            type: 'TRADELINE',
+            tradelineId: tl.id,
+            bureaus: tl.bureaus,
+            creditorName: tl.creditorName
+          },
+          details: {
+            remarks: tl.remarks,
+            status: tl.status,
+            balance: tl.balance
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// ---------------------------------------------------------------------
+// 3) FDCPA RULES
+// ---------------------------------------------------------------------
+
+// 19. FDCPA_COLLECTOR_CONTINUES_REPORTING_AFTER_VALIDATION_REQUEST
+export function runRule_FDCPA_COLLECTOR_CONTINUES_REPORTING_AFTER_VALIDATION_REQUEST(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FDCPA 15 U.S.C. §1692g', 'FDCPA 15 U.S.C. §1692e', 'FDCPA 15 U.S.C. §1692f'];
+
+  // This rule expects optional metadata in report.meta:
+  // meta.dvEvents: { collectorName: string; validationProvided: boolean; disputedCollectionIds: string[] }[]
+  const metaAny = report.meta as any;
+  const dvEvents: {
+    collectorName: string;
+    validationProvided: boolean;
+    collectionIds?: string[];
+  }[] = metaAny?.dvEvents ?? [];
+
+  if (!dvEvents.length) return issues;
+
+  const dvByCollector = new Map<string, { validationProvided: boolean; collectionIds: string[] }>();
+  for (const ev of dvEvents) {
+    dvByCollector.set(normalizeName(ev.collectorName), {
+      validationProvided: ev.validationProvided,
+      collectionIds: ev.collectionIds ?? []
+    });
+  }
+
+  for (const col of report.collections) {
+    const key = normalizeName(col.collectorName);
+    const dv = dvByCollector.get(key);
+    if (!dv) continue;
+    if (dv.validationProvided) continue;
+
+    // DV requested but no validation; still reporting.
+    issues.push(
+      makeIssue({
+        ruleId: 'FDCPA_COLLECTOR_CONTINUES_REPORTING_AFTER_VALIDATION_REQUEST',
+        category: 'FDCPA',
+        severity: 'HIGH',
+        lawReferences: lawRefs,
+        description: `Collector "${col.collectorName}" appears to continue reporting a disputed debt after a validation request without providing proper validation.`,
+        relatedAccount: {
+          type: 'COLLECTION',
+          collectionId: col.id,
+          bureaus: col.bureaus,
+          collectorName: col.collectorName,
+          originalCreditorName: col.originalCreditorName ?? null
+        },
+        details: {
+          dvEvent: dv
+        }
+      })
+    );
+  }
+
+  return issues;
+}
+
+// 20. FDCPA_DUPLICATE_COLLECTOR_REPORTING_SAME_DEBT
+export function runRule_FDCPA_DUPLICATE_COLLECTOR_REPORTING_SAME_DEBT(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FDCPA 15 U.S.C. §1692e(2)', 'FDCPA 15 U.S.C. §1692f'];
+
+  const byKey = new Map<string, CollectionAccount[]>();
+
+  for (const col of report.collections) {
+    const family = normalizeName(col.collectorName);
+    const orig = normalizeName(col.originalCreditorName || '');
+    const balBucket = Math.round((col.balance ?? 0) / 10) * 10;
+    const key = [family, orig, balBucket].join('|');
+
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(col);
+  }
+
+  for (const [key, group] of byKey) {
+    if (group.length <= 1) continue;
+
+    const first = group[0];
+    issues.push(
+      makeIssue({
+        ruleId: 'FDCPA_DUPLICATE_COLLECTOR_REPORTING_SAME_DEBT',
+        category: 'FDCPA',
+        severity: 'HIGH',
+        lawReferences: lawRefs,
+        description: `Collector "${first.collectorName}" (or related entities) appears to be reporting multiple derogatory entries for the same underlying debt, inflating its impact.`,
+        relatedAccount: {
+          type: 'COLLECTION',
+          collectionId: first.id,
+          bureaus: first.bureaus,
+          collectorName: first.collectorName,
+          originalCreditorName: first.originalCreditorName ?? null
+        },
+        details: {
+          key,
+          collectionIds: group.map((g) => g.id)
+        }
+      })
+    );
+  }
+
+  return issues;
+}
+
+// 21. FDCPA_COLLECTOR_MISSTATED_BALANCE
+export function runRule_FDCPA_COLLECTOR_MISSTATED_BALANCE(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FDCPA 15 U.S.C. §1692e(2)', 'FDCPA 15 U.S.C. §1692f(1)'];
+
+  for (const col of report.collections) {
+    if (col.balance == null || col.balance <= 0) continue;
+    if (!col.originalCreditorName) continue;
+
+    const origNorm = normalizeName(col.originalCreditorName);
+
+    // Find related charge-off tradeline(s)
+    const relatedTradelines = report.tradelines.filter((tl) => {
+      const tlNorm = normalizeName(tl.creditorName);
+      return tlNorm.includes(origNorm) || origNorm.includes(tlNorm);
+    });
+
+    if (!relatedTradelines.length) continue;
+
+    const chargeOffBalances = relatedTradelines
+      .filter((tl) => tl.status === 'CHARGE_OFF' || tl.status === 'COLLECTION')
+      .map((tl) => safeNumber(tl.balance) ?? 0);
+
+    if (!chargeOffBalances.length) continue;
+
+    const maxChargeOff = Math.max(...chargeOffBalances);
+    // If collector reports > 25% more than highest charge-off balance + $50 buffer
+    const threshold = maxChargeOff * 1.25 + 50;
+
+    if (col.balance > threshold && maxChargeOff > 0) {
+      issues.push(
+        makeIssue({
+          ruleId: 'FDCPA_COLLECTOR_MISSTATED_BALANCE',
+          category: 'FDCPA',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Collector "${col.collectorName}" reports a balance that appears materially higher than the related charge-off balance from "${col.originalCreditorName}".`,
+          relatedAccount: {
+            type: 'COLLECTION',
+            collectionId: col.id,
+            bureaus: col.bureaus,
+            collectorName: col.collectorName,
+            originalCreditorName: col.originalCreditorName ?? null
+          },
+          details: {
+            collectorBalance: col.balance,
+            maxChargeOffBalance: maxChargeOff
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// 22. FDCPA_COLLECTOR_NOT_MARKING_ACCOUNT_DISPUTED
+export function runRule_FDCPA_COLLECTOR_NOT_MARKING_ACCOUNT_DISPUTED(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FDCPA 15 U.S.C. §1692e(8)'];
+
+  // Expect optional metadata: meta.collectorDisputes: { collectionId: string; disputed: boolean }[]
+  const metaAny = report.meta as any;
+  const collectorDisputes: { collectionId: string; disputed: boolean }[] =
+    metaAny?.collectorDisputes ?? [];
+
+  if (!collectorDisputes.length) return issues;
+
+  const disputeMap = new Map<string, boolean>();
+  for (const d of collectorDisputes) {
+    disputeMap.set(d.collectionId, d.disputed);
+  }
+
+  const disputeMarkers = [
+    'disputed by consumer',
+    'consumer disputes',
+    'account information disputed',
+    'customer disputes'
+  ];
+
+  const hasMarker = (remarks?: string[]): boolean => {
+    if (!remarks) return false;
+    const text = remarks.join(' ').toLowerCase();
+    return disputeMarkers.some((k) => text.includes(k));
+  };
+
+  for (const col of report.collections) {
+    if (!disputeMap.get(col.id)) continue;
+    if (hasMarker(col.remarks)) continue;
+
+    issues.push(
+      makeIssue({
+        ruleId: 'FDCPA_COLLECTOR_NOT_MARKING_ACCOUNT_DISPUTED',
+        category: 'FDCPA',
+        severity: 'MEDIUM',
+        lawReferences: lawRefs,
+        description: `Collector "${col.collectorName}" appears not to have marked the account as disputed after the consumer disputed it.`,
+        relatedAccount: {
+          type: 'COLLECTION',
+          collectionId: col.id,
+          bureaus: col.bureaus,
+          collectorName: col.collectorName,
+          originalCreditorName: col.originalCreditorName ?? null
+        },
+        details: {
+          remarks: col.remarks
+        }
+      })
+    );
+  }
+
+  return issues;
+}
+
+// 23. FDCPA_COLLECTOR_MISLEADING_STATUS_OR_THREAT_LANGUAGE
+export function runRule_FDCPA_COLLECTOR_MISLEADING_STATUS_OR_THREAT_LANGUAGE(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FDCPA 15 U.S.C. §1692e(5)', 'FDCPA 15 U.S.C. §1692e(10)'];
+
+  const threatWords = ['attorney', 'legal action', 'lawsuit', 'sue', 'garnish', 'garnishment'];
+
+  // Optional metadata: meta.lawsuits: { collectorName: string; filed: boolean }[]
+  const metaAny = report.meta as any;
+  const lawsuits: { collectorName: string; filed: boolean }[] = metaAny?.lawsuits ?? [];
+  const lawsuitMap = new Map<string, boolean>();
+  for (const l of lawsuits) {
+    lawsuitMap.set(normalizeName(l.collectorName), l.filed);
+  }
+
+  for (const col of report.collections) {
+    const remarksText = (col.remarks || []).join(' ').toLowerCase();
+    const hasThreat = threatWords.some((w) => remarksText.includes(w));
+    if (!hasThreat) continue;
+
+    const sued = lawsuitMap.get(normalizeName(col.collectorName)) || false;
+
+    if (!sued) {
+      issues.push(
+        makeIssue({
+          ruleId: 'FDCPA_COLLECTOR_MISLEADING_STATUS_OR_THREAT_LANGUAGE',
+          category: 'FDCPA',
+          severity: 'HIGH',
+          lawReferences: lawRefs,
+          description: `Collector "${col.collectorName}" uses attorney/legal action threat language in reporting without a matching lawsuit record, which may be misleading or deceptive.`,
+          relatedAccount: {
+            type: 'COLLECTION',
+            collectionId: col.id,
+            bureaus: col.bureaus,
+            collectorName: col.collectorName,
+            originalCreditorName: col.originalCreditorName ?? null
+          },
+          details: {
+            remarks: col.remarks
+          }
+        })
+      );
+    }
+  }
+
+  return issues;
+}
+
+// 24. FDCPA_MISSING_REQUIRED_VALIDATION_DISCLOSURE
+export function runRule_FDCPA_MISSING_REQUIRED_VALIDATION_DISCLOSURE(
+  report: CreditReport,
+  _userId: string
+): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  const lawRefs = ['FDCPA 15 U.S.C. §1692g(a)'];
+
+  // Expect optional metadata: meta.validationNotices: { collectorName: string; sentAt: string | null }[]
+  const metaAny = report.meta as any;
+  const notices: { collectorName: string; sentAt: string | null }[] =
+    metaAny?.validationNotices ?? [];
+  const noticeMap = new Map<string, string | null>();
+  for (const n of notices) {
+    noticeMap.set(normalizeName(n.collectorName), n.sentAt);
+  }
+
+  for (const col of report.collections) {
+    const key = normalizeName(col.collectorName);
+    const sentAt = noticeMap.get(key);
+    if (sentAt) continue; // we have a notice logged
+
+    issues.push(
+      makeIssue({
+        ruleId: 'FDCPA_MISSING_REQUIRED_VALIDATION_DISCLOSURE',
+        category: 'FDCPA',
+        severity: 'MEDIUM',
+        lawReferences: lawRefs,
+        description: `Collector "${col.collectorName}" appears on the credit report without a corresponding initial validation notice being logged in the system.`,
+        relatedAccount: {
+          type: 'COLLECTION',
+          collectionId: col.id,
+          bureaus: col.bureaus,
+          collectorName: col.collectorName,
+          originalCreditorName: col.originalCreditorName ?? null
+        },
+        details: {}
+      })
+    );
+  }
+
+  return issues;
+}
+
+// ---------------------------------------------------------------------
+// EXPORT MAP (for rulesEngine.ts to wire easily)
+// ---------------------------------------------------------------------
+
+export const ruleImplementations = {
+  FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE: runRule_FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE,
+  FCRA_INCONSISTENT_STATUS_SEVERITY: runRule_FCRA_INCONSISTENT_STATUS_SEVERITY,
+  FCRA_REAGING_DATE_OF_FIRST_DELINQUENCY:
+    runRule_FCRA_REAGING_DATE_OF_FIRST_DELINQUENCY,
+  FCRA_OBSOLETE_DEROGATORY_7_YEARS: runRule_FCRA_OBSOLETE_DEROGATORY_7_YEARS,
+  FCRA_MISSING_DISPUTE_MARKER: runRule_FCRA_MISSING_DISPUTE_MARKER,
+  FCRA_FORBEARANCE_OR_HARDSHIP_REPORTED_LATE:
+    runRule_FCRA_FORBEARANCE_OR_HARDSHIP_REPORTED_LATE,
+  FCRA_DUPLICATE_TRADELINES_SAME_DEBT: runRule_FCRA_DUPLICATE_TRADELINES_SAME_DEBT,
+  FCRA_INCORRECT_OPEN_CLOSED_STATUS: runRule_FCRA_INCORRECT_OPEN_CLOSED_STATUS,
+  FCRA_COLLECTION_MISSING_ORIGINAL_CREDITOR:
+    runRule_FCRA_COLLECTION_MISSING_ORIGINAL_CREDITOR,
+  FCRA_PUBLIC_RECORD_AMOUNT_OR_COURT_MISMATCH:
+    runRule_FCRA_PUBLIC_RECORD_AMOUNT_OR_COURT_MISMATCH,
+  METRO2_CHARGEOFF_PAST_DUE_NONZERO: runRule_METRO2_CHARGEOFF_PAST_DUE_NONZERO,
+  METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT:
+    runRule_METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT,
+  METRO2_SOLD_ACCOUNT_STILL_CHARGEOFF: runRule_METRO2_SOLD_ACCOUNT_STILL_CHARGEOFF,
+  METRO2_MISSING_HARDSHIP_OR_FORBEARANCE_CODE:
+    runRule_METRO2_MISSING_HARDSHIP_OR_FORBEARANCE_CODE,
+  METRO2_INCONSISTENT_CREDIT_LIMIT_OR_LOAN_AMOUNT:
+    runRule_METRO2_INCONSISTENT_CREDIT_LIMIT_OR_LOAN_AMOUNT,
+  METRO2_COLLECTION_PAST_DUE_NONZERO: runRule_METRO2_COLLECTION_PAST_DUE_NONZERO,
+  METRO2_DUPLICATE_COLLECTIONS_SAME_DEBT:
+    runRule_METRO2_DUPLICATE_COLLECTIONS_SAME_DEBT,
+  METRO2_BANKRUPTCY_ACCOUNT_STILL_OPEN: runRule_METRO2_BANKRUPTCY_ACCOUNT_STILL_OPEN,
+  FDCPA_COLLECTOR_CONTINUES_REPORTING_AFTER_VALIDATION_REQUEST:
+    runRule_FDCPA_COLLECTOR_CONTINUES_REPORTING_AFTER_VALIDATION_REQUEST,
+  FDCPA_DUPLICATE_COLLECTOR_REPORTING_SAME_DEBT:
+    runRule_FDCPA_DUPLICATE_COLLECTOR_REPORTING_SAME_DEBT,
+  FDCPA_COLLECTOR_MISSTATED_BALANCE: runRule_FDCPA_COLLECTOR_MISSTATED_BALANCE,
+  FDCPA_COLLECTOR_NOT_MARKING_ACCOUNT_DISPUTED:
+    runRule_FDCPA_COLLECTOR_NOT_MARKING_ACCOUNT_DISPUTED,
+  FDCPA_COLLECTOR_MISLEADING_STATUS_OR_THREAT_LANGUAGE:
+    runRule_FDCPA_COLLECTOR_MISLEADING_STATUS_OR_THREAT_LANGUAGE,
+  FDCPA_MISSING_REQUIRED_VALIDATION_DISCLOSURE:
+    runRule_FDCPA_MISSING_REQUIRED_VALIDATION_DISCLOSURE
+};
+
+How to hook this into analyzeWithRulesEngine
+
+In your rulesEngine.ts, instead of manually wiring each rule, you can do:
+
+import { rulesCatalog } from '../rules/rules_catalog';
+import { ruleImplementations } from './rules/ruleImplementations';
+
+export async function analyzeWithRulesEngine({ report, userId }: AnalyzeWithRulesEngineInput) {
+  const issues: IssueFlag[] = [];
+
+  for (const rule of rulesCatalog.rules) {
+    if (!rule.enabled) continue;
+    const runner = (ruleImplementations as any)[rule.id];
+    if (!runner) continue;
+    const ruleIssues: IssueFlag[] = runner(report, userId) || [];
+    issues.push(...ruleIssues);
+  }
+
+  const aiExplanations = await generateAiExplanationsForIssues(issues);
+  return { issues, aiExplanations };
+}

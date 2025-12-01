@@ -1,0 +1,275 @@
+drop this into your repo as rules_catalog.json and then load it in rulesCatalog.ts / rulesEngine.ts.
+
+{
+  "meta": {
+    "mission": "Systematically scan every tradeline, collection, public record, and inquiry for all encoded FCRA, FDCPA, and Metro 2 violations.",
+    "lawsCovered": ["FCRA", "FDCPA", "METRO2"],
+    "guarantee": "For every enabled rule in this catalog, analyzeWithRulesEngine MUST evaluate it against the entire CreditReport. No rule is skipped and no triggered violation is silently dropped."
+  },
+  "rules": [
+    {
+      "id": "FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE",
+      "category": "FCRA",
+      "description": "Same tradeline reports materially different balance or past-due amounts across bureaus for the same debt.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "severityDefault": "HIGH",
+      "logicHint": "For each tradeline with bureauSnapshots.length > 1, compare balance and pastDue across bureaus. If max(balance) - min(balance) or max(pastDue) - min(pastDue) > small tolerance (e.g., $5), flag violation.",
+      "exampleFromJarred": "GM Financial auto loan shows ~$0 balance on TransUnion but ~11,265 balance and past-due on Experian/Equifax."
+    },
+    {
+      "id": "FCRA_INCONSISTENT_STATUS_SEVERITY",
+      "category": "FCRA",
+      "description": "Tradeline status severity differs between bureaus (e.g., foreclosure vs 120 days late) for the same underlying mortgage or loan.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "severityDefault": "HIGH",
+      "logicHint": "Map statuses to a severity rank (CURRENT < LATE_30 < ... < FORECLOSURE). If severity differs across bureauSnapshots for same tradeline by more than 1 level, flag.",
+      "exampleFromJarred": "CrossCountry first mortgage coded as ‘Foreclosure’ on Experian but ‘120 days late’ on TransUnion/Equifax."
+    },
+    {
+      "id": "FCRA_REAGING_DATE_OF_FIRST_DELINQUENCY",
+      "category": "FCRA",
+      "description": "Date of First Delinquency (DOFD) appears to have been moved later to make a derogatory item look newer (re-aging).",
+      "lawReferences": ["FCRA 15 U.S.C. §1681c(a)", "FCRA 15 U.S.C. §1681s-2(a)(5)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE", "COLLECTION"],
+      "severityDefault": "HIGH",
+      "logicHint": "If DOFD > charge-off date OR DOFD is materially later than earliest persistent delinquency history OR DOFD differs significantly between bureaus for same debt, flag as potential re-aging.",
+      "exampleFromJarred": "Any charged-off auto or personal loan where DOFD appears close to the report date rather than when first default actually occurred."
+    },
+    {
+      "id": "FCRA_OBSOLETE_DEROGATORY_7_YEARS",
+      "category": "FCRA",
+      "description": "Negative account or collection is still reporting more than 7 years after DOFD.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681c(a)(4)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE", "COLLECTION"],
+      "severityDefault": "HIGH",
+      "logicHint": "If (report.meta.reportDate - DOFD) > 7 years and account is derogatory (late, charge-off, collection), flag as obsolete.",
+      "exampleFromJarred": "Older derogatories like prior CrossCMTG or Austin Capital accounts once they exceed 7 years from DOFD."
+    },
+    {
+      "id": "FCRA_MISSING_DISPUTE_MARKER",
+      "category": "FCRA",
+      "description": "Account previously disputed by consumer but is not marked as disputed on one or more bureaus.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681s-2(a)(3)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE", "COLLECTION"],
+      "severityDefault": "MEDIUM",
+      "logicHint": "If user has an associated IssueFlag or prior dispute record for this account, but bureauSnapshot.remarks do NOT contain any ‘disputed by consumer’ language for that bureau, flag.",
+      "exampleFromJarred": "LVNV Funding and CrossCountry tradelines where some bureaus show ‘Account information disputed by consumer’ but others do not."
+    },
+    {
+      "id": "FCRA_FORBEARANCE_OR_HARDSHIP_REPORTED_LATE",
+      "category": "FCRA",
+      "description": "Account in forbearance, modification, or government relief plan is still reported with standard late codes rather than appropriately coded hardship.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681e(b)", "CARES Act guidance on accommodation reporting"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "severityDefault": "HIGH",
+      "logicHint": "If remarks include ‘loan modified’, ‘federal government plan’, or similar, but bureauSnapshots show LATE_60/LATE_90/LATE_120 without any hardship/forbearance indication, flag.",
+      "exampleFromJarred": "Smaller CrossCountry mortgage with ‘loan modified/Fedrl Govt Plan’ remarks while Experian still shows 30/60/120-day lates."
+    },
+    {
+      "id": "FCRA_DUPLICATE_TRADELINES_SAME_DEBT",
+      "category": "FCRA",
+      "description": "Multiple tradelines appear to represent the same debt, inflating derogatory impact.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "severityDefault": "HIGH",
+      "logicHint": "Group tradelines by creditorName + accountNumberLast4 + similar originalAmount. If more than one open/derogatory tradeline exists for same debt where only one should, flag.",
+      "exampleFromJarred": "Any case where the same mortgage or auto loan is accidentally reported as two active derogatory tradelines."
+    },
+    {
+      "id": "FCRA_INCORRECT_OPEN_CLOSED_STATUS",
+      "category": "FCRA",
+      "description": "Account that is paid, closed, or transferred is still reported as open or delinquent.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "severityDefault": "HIGH",
+      "logicHint": "If remarks indicate ‘paid’, ‘closed’, ‘transferred’, or ‘purchased by another lender’ but status is OPEN/LATE_xx, flag.",
+      "exampleFromJarred": "New Wave / WebBank tradeline sold to Jefferson Capital still coded as a charge-off/collection instead of purely sold/transferred."
+    },
+    {
+      "id": "FCRA_COLLECTION_MISSING_ORIGINAL_CREDITOR",
+      "category": "FCRA",
+      "description": "Collection account does not clearly list the original creditor when expected.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681g(a)", "FCRA 15 U.S.C. §1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "severityDefault": "MEDIUM",
+      "logicHint": "For third-party collections, if originalCreditorName is null/empty OR generic placeholder while other sources clearly show an original creditor, flag.",
+      "exampleFromJarred": "Any collection line that omits the underlying issuer where IdentityIQ lists it elsewhere."
+    },
+    {
+      "id": "FCRA_PUBLIC_RECORD_AMOUNT_OR_COURT_MISMATCH",
+      "category": "FCRA",
+      "description": "Public record (judgment, lien, etc.) has inconsistent or obviously incorrect amount or court details.",
+      "lawReferences": ["FCRA 15 U.S.C. §1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["PUBLIC_RECORD"],
+      "severityDefault": "HIGH",
+      "logicHint": "If publicRecord.amount is negative, obviously wrong, or courtName mismatches known court patterns, flag.",
+      "exampleFromJarred": "Future use if any judgments or liens appear with conflicting amounts."
+    },
+    {
+      "id": "METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "category": "METRO2",
+      "description": "Charged-off tradeline still shows full balance as past-due, contrary to Metro 2 charge-off guidance.",
+      "lawReferences": ["Metro 2 Consumer Credit Reporting Resource Guide – Charge-off coding"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "severityDefault": "HIGH",
+      "logicHint": "If tradeline.status == CHARGE_OFF and pastDue is not null and is approximately equal to balance (or materially > 0), flag.",
+      "exampleFromJarred": "MidFlorida CU auto, Navy FCU card, Achieve Personal Loans where charge-off accounts still show full balance as past-due."
+    },
+    {
+      "id": "METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT",
+      "category": "METRO2",
+      "description": "Third-party collection is coded as an open revolving/installment account with late history instead of a collection.",
+      "lawReferences": ["Metro 2 guidelines – collection agency reporting"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "severityDefault": "HIGH",
+      "logicHint": "If collectorName is present but account type/status looks like an open account with LATE_xx instead of a collection, flag.",
+      "exampleFromJarred": "LVNVFUNDG tradeline coded as ‘open/120 days late’ plus a separate LVNV collection tradeline for the same CareCredit debt."
+    },
+    {
+      "id": "METRO2_SOLD_ACCOUNT_STILL_CHARGEOFF",
+      "category": "METRO2",
+      "description": "Account sold to another lender still carries an active charge-off/collection status instead of pure sold/transferred coding.",
+      "lawReferences": ["Metro 2 guidelines – sold/transferred accounts"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "severityDefault": "HIGH",
+      "logicHint": "If remarks contain ‘purchased by another lender’ or ‘sold to: [collector]’ and balance == 0 but status is CHARGE_OFF or COLLECTION, flag.",
+      "exampleFromJarred": "New Wave / WebBank – remark ‘sold to Jefferson Capital’ yet still shows ‘Collection/Chargeoff’ on the report."
+    },
+    {
+      "id": "METRO2_MISSING_HARDSHIP_OR_FORBEARANCE_CODE",
+      "category": "METRO2",
+      "description": "Account in modification, forbearance, or federal plan lacks appropriate hardship coding while serious lates are reported.",
+      "lawReferences": ["Metro 2 guidelines – Special Comment Codes", "CARES Act credit reporting guidance"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "severityDefault": "HIGH",
+      "logicHint": "If remarks mention modification/forbearance/relief but bureauSnapshots show LATE_60 or worse and no hardship/forbearance remark/code, flag.",
+      "exampleFromJarred": "CrossCountry mortgages with ‘loan modified/Fedrl Govt Plan’ but ongoing 60/90/120-day lates."
+    },
+    {
+      "id": "METRO2_INCONSISTENT_CREDIT_LIMIT_OR_LOAN_AMOUNT",
+      "category": "METRO2",
+      "description": "Same revolving or installment account shows materially different high credit/limit/loan amount across bureaus.",
+      "lawReferences": ["Metro 2 Consumer Credit Reporting Resource Guide"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "severityDefault": "MEDIUM",
+      "logicHint": "For each tradeline with multiple bureauSnapshots, compare credit limit or original loan amount values if available. If large mismatch, flag.",
+      "exampleFromJarred": "Any revolving line (e.g., New Wave card) where one bureau shows a $21,500 limit while another shows drastically different or missing limits."
+    },
+    {
+      "id": "METRO2_COLLECTION_PAST_DUE_NONZERO",
+      "category": "METRO2",
+      "description": "Third-party collection reports a non-zero past-due amount instead of using collection balance fields.",
+      "lawReferences": ["Metro 2 guidelines – collection agency fields"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "severityDefault": "MEDIUM",
+      "logicHint": "If a collection account (collectorName present) has pastDue > 0, flag.",
+      "exampleFromJarred": "LVNVFUNDG or Absolute Resolutions lines where the collection is also shown with ‘past due = full balance’."
+    },
+    {
+      "id": "METRO2_DUPLICATE_COLLECTIONS_SAME_DEBT",
+      "category": "METRO2",
+      "description": "Multiple collection tradelines appear to represent the same underlying original creditor and amount.",
+      "lawReferences": ["Metro 2 guidelines – reporting of transferred/sold accounts"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "severityDefault": "HIGH",
+      "logicHint": "Group collections by originalCreditorName + approximate balance. If more than one open/derog collection exists for same original debt, flag.",
+      "exampleFromJarred": "Absolute Resolutions I + ABSRES INV both tied to same Navy FCU debt for ~$3,624."
+    },
+    {
+      "id": "METRO2_BANKRUPTCY_ACCOUNT_STILL_OPEN",
+      "category": "METRO2",
+      "description": "Account included in bankruptcy remains coded as open with balance due.",
+      "lawReferences": ["Metro 2 guidelines – bankruptcy coding"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "severityDefault": "HIGH",
+      "logicHint": "If remarks contain ‘included in bankruptcy’ but status is OPEN or CURRENT with non-zero balance, flag.",
+      "exampleFromJarred": "Reserved for future if bankruptcy notations appear."
+    },
+    {
+      "id": "FDCPA_COLLECTOR_CONTINUES_REPORTING_AFTER_VALIDATION_REQUEST",
+      "category": "FDCPA",
+      "description": "Debt collector continues reporting or updating a disputed debt after the consumer has requested validation and validation has not been properly provided.",
+      "lawReferences": ["FDCPA 15 U.S.C. §1692g", "FDCPA 15 U.S.C. §1692e", "FDCPA 15 U.S.C. §1692f"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "severityDefault": "HIGH",
+      "logicHint": "If system has a record of DV (debt validation) letter sent and no validation flag is set, yet collection continues to update or remains reported, flag.",
+      "exampleFromJarred": "LVNV Funding continues to report CareCredit collection after a DV letter is logged in the system."
+    },
+    {
+      "id": "FDCPA_DUPLICATE_COLLECTOR_REPORTING_SAME_DEBT",
+      "category": "FDCPA",
+      "description": "Collector or its related entities report multiple derogatory entries for the same alleged debt, creating an inflated impression.",
+      "lawReferences": ["FDCPA 15 U.S.C. §1692e(2)", "FDCPA 15 U.S.C. §1692f"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "severityDefault": "HIGH",
+      "logicHint": "Group collections by collectorName family (e.g., LVNVFUNDG vs LVNV) + originalCreditorName + balance. If multiple open collections exist for same debt, flag.",
+      "exampleFromJarred": "LVNVFUNDG ‘open/late’ plus LVNV Funding collection for same Synchrony CareCredit balance; Absolute Resolutions I + ABSRES INV for the same Navy FCU card."
+    },
+    {
+      "id": "FDCPA_COLLECTOR_MISSTATED_BALANCE",
+      "category": "FDCPA",
+      "description": "Collector-reported balance materially exceeds or conflicts with original creditor charge-off amount or reasonable fees.",
+      "lawReferences": ["FDCPA 15 U.S.C. §1692e(2)", "FDCPA 15 U.S.C. §1692f(1)"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "severityDefault": "HIGH",
+      "logicHint": "If collection.balance is significantly greater than original charge-off amount plus reasonable interest/fees over time, flag.",
+      "exampleFromJarred": "Any future scenario where a collector reports a balance much higher than the original Navy FCU or Achieve charge-off."
+    },
+    {
+      "id": "FDCPA_COLLECTOR_NOT_MARKING_ACCOUNT_DISPUTED",
+      "category": "FDCPA",
+      "description": "Collector fails to mark an account as disputed after the consumer disputes it.",
+      "lawReferences": ["FDCPA 15 U.S.C. §1692e(8)"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "severityDefault": "MEDIUM",
+      "logicHint": "If a DV or dispute is logged in system for collector but bureauSnapshots.remarks do not contain ‘disputed by consumer’ or similar language, flag.",
+      "exampleFromJarred": "Any LVNV, Absolute Resolutions, or Harvard collection that should show dispute notation but does not."
+    },
+    {
+      "id": "FDCPA_COLLECTOR_MISLEADING_STATUS_OR_THREAT_LANGUAGE",
+      "category": "FDCPA",
+      "description": "Collection status or remarks imply litigation, attorney assignment, or other severe consequences when that is not accurate.",
+      "lawReferences": ["FDCPA 15 U.S.C. §1692e(5)", "FDCPA 15 U.S.C. §1692e(10)"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "severityDefault": "HIGH",
+      "logicHint": "Scan remarks for phrases like ‘assigned to attorney’, ‘legal action’, or similar. If present without matching lawsuit/public record and collector not verified as litigating, flag.",
+      "exampleFromJarred": "Absolute Resolutions or other collectors marking ‘seriously past due, assigned to collection/attorney’ without corresponding lawsuit evidence."
+    },
+    {
+      "id": "FDCPA_MISSING_REQUIRED_VALIDATION_DISCLOSURE",
+      "category": "FDCPA",
+      "description": "Collector reports or collects without having provided initial validation notice when first contacting the consumer.",
+      "lawReferences": ["FDCPA 15 U.S.C. §1692g(a)"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "severityDefault": "MEDIUM",
+      "logicHint": "If collection tradeline exists with no record of an initial validation notice date in internal system metadata, flag.",
+      "exampleFromJarred": "Harvard Collection for IL Department of Human Services if no validation notice is logged before reporting appears."
+    }
+  ]
+}

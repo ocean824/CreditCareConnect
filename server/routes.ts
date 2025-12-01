@@ -443,6 +443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
             
             // Convert tri-merge format to legacy format for compatibility
+            const { convertTriMergeToLegacy } = await import('./services/convertTriMergeToLegacy');
             parsedReport = convertTriMergeToLegacy(triMergeReport);
             
             // Log parsing results
