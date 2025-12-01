@@ -1,0 +1,320 @@
+make sure a Tri-Merge upload goes through the exact same pipeline and powers all the same features as single-bureau uploads.
+
+1️⃣ One pipeline, just a bureau: 'TRI' flag
+
+We do NOT want a second, special pathway for tri-merge. We just:
+
+Tag the upload as bureau: 'TRI' and
+
+Make sure the parser and types can represent “this account appears on these bureaus with these per-bureau values.”
+
+Everything else (rules engine, DB, letters, UI) stays identical.
+
+/api/credit-reports/upload – behavior
+
+Your existing upload endpoint can already handle this; just enforce that tri-merge is allowed:
+
+// server/routes/creditReports.ts (simplified)
+router.post('/upload', requireAuth, async (req, res) => {
+  const { filePath, bureau } = req.body as {
+    filePath: string;
+    bureau?: 'TRI' | 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION';
+  };
+
+  if (!filePath) {
+    return res.status(400).json({ ok: false, error: 'filePath required' });
+  }
+
+  const bureauCode = bureau || 'TRI'; // default tri-merge if you want
+
+  const rawText = await ocrPdfOrImage(filePath);
+
+  // ✅ key point: the parser always returns a unified CreditReport
+  const report = await parseCreditReportWithAiOnly(rawText, bureauCode);
+
+  // 🔁 same downstream for TRI or single bureau:
+  const { issues, aiExplanations } = await analyzeWithRulesEngine({
+    report,
+    userId: req.user.id
+  });
+
+  // save to DB, return {reportId, issuesCount} as before
+});
+
+2️⃣ Make sure CreditReport can represent tri-merge data
+
+The trick: one CreditReport record for the tri-merge, but each tradeline/collection knows which bureaus it’s on and how it’s reported there.
+
+Here’s a minimal shape (you can adapt to your existing credit.ts):
+
+// server/types/credit.ts
+
+export type BureauCode = 'TRI' | 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION';
+
+export interface CreditReportMeta {
+  id: string;
+  provider: string; // e.g. 'IdentityIQ'
+  reportDate: string; // ISO
+  bureausIncluded: BureauCode[]; // ['EXPERIAN','EQUIFAX','TRANSUNION'] for tri-merge
+}
+
+export interface BureauSnapshot {
+  bureau: Exclude<BureauCode, 'TRI'>;
+  status: AccountStatus;
+  balance: number | null;
+  pastDue: number | null;
+  // You can extend this later with pay history, DOFD, etc.
+}
+
+export interface Tradeline {
+  id: string;
+  creditorName: string;
+  accountNumberLast4?: string;
+  type: TradelineType;
+  // Aggregated high-level view, e.g. worst status across bureaus
+  status: AccountStatus;
+  balance: number | null;
+  pastDue: number | null;
+
+  // 🔑 tri-merge magic:
+  bureaus: Exclude<BureauCode, 'TRI'>[];      // ['EXPERIAN','EQUIFAX']
+  bureauSnapshots: BureauSnapshot[];         // one per bureau
+  remarks?: string[];
+}
+
+export interface CollectionAccount {
+  id: string;
+  collectorName: string;
+  originalCreditorName?: string;
+  balance: number | null;
+  status: CollectionStatus;
+
+  // Same pattern – we know which bureaus show this collection:
+  bureaus: Exclude<BureauCode, 'TRI'>[];
+  bureauSnapshots: BureauSnapshot[];
+  remarks?: string[];
+}
+
+export interface CreditReport {
+  id: string;          // DB id
+  userId: string;
+  meta: CreditReportMeta;
+  tradelines: Tradeline[];
+  collections: CollectionAccount[];
+  publicRecords: PublicRecord[];
+  inquiries: Inquiry[];
+}
+
+
+So:
+
+For a Tri-Merge upload:
+
+meta.bureausIncluded = ['EXPERIAN', 'EQUIFAX', 'TRANSUNION']
+
+Each tradeline/collection has:
+
+bureaus: ['EXPERIAN', 'EQUIFAX'] etc.
+
+bureauSnapshots with per-bureau status/balance/pastDue.
+
+For a single Experian report:
+
+meta.bureausIncluded = ['EXPERIAN']
+
+Each tradeline has bureaus: ['EXPERIAN'] and one snapshot.
+
+✅ This way the rules engine and letter generator always see the same CreditReport shape, regardless of whether it came from tri-merge or single.
+
+3️⃣ Teach the AI parser about tri-merge
+
+Your parser just needs to treat "TRI" as “this PDF likely contains three labeled bureau sections.”
+
+Something like:
+
+// server/services/creditReportParser.ts
+
+export async function parseCreditReportWithAiOnly(
+  rawText: string,
+  bureauHint: BureauCode
+): Promise<CreditReport> {
+  if (!openai) throw new Error('OPENAI_API_KEY missing');
+
+  const system = `
+You parse consumer credit reports (including tri-merge reports like IdentityIQ).
+Output a JSON CreditReport with per-bureau snapshots for tradelines and collections.
+Always include:
+- meta.bureausIncluded
+- tradelines[].bureaus and tradelines[].bureauSnapshots
+- collections[].bureaus and collections[].bureauSnapshots
+`;
+
+  const user = `
+RAW REPORT TEXT (snippet):
+${rawText.slice(0, 12000)}
+
+bureauHint: ${bureauHint}
+
+If bureauHint === 'TRI', you MUST:
+- detect Experian, Equifax, TransUnion sections,
+- link the same account across bureaus using creditor name, last 4, and balance,
+- populate bureauSnapshots accordingly.
+`;
+
+  // call OpenAI, parse JSON, validate shape, return CreditReport
+}
+
+
+You don’t need perfect matching; even “best guess” linking across bureaus gives you enough to:
+
+detect inconsistencies;
+
+drive letters.
+
+4️⃣ Rules engine works the same (and actually better) for tri-merge
+
+Because your CreditReport now has bureauSnapshots, the rules engine can do cross-bureau checks within the same report.
+
+Example tweak for FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE rule:
+
+function detectInconsistentBalanceAcrossBureaus(
+  report: CreditReport,
+  userId: string
+): IssueFlag[] {
+  const cfg = ruleIndex.get('FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE');
+  if (!cfg) return [];
+
+  const issues: IssueFlag[] = [];
+
+  for (const tl of report.tradelines) {
+    if (!tl.bureauSnapshots || tl.bureauSnapshots.length < 2) continue;
+
+    const balances = tl.bureauSnapshots
+      .map(s => ({ bureau: s.bureau, balance: s.balance ?? 0 }))
+      .filter(x => x.balance != null);
+
+    if (balances.length < 2) continue;
+
+    const minBal = Math.min(...balances.map(b => b.balance));
+    const maxBal = Math.max(...balances.map(b => b.balance));
+
+    // Simple threshold: > $1 difference counts
+    if (Math.abs(maxBal - minBal) < 1) continue;
+
+    // emit IssueFlag...
+  }
+
+  return issues;
+}
+
+
+Because tri-merge gives you all three snapshots inside one CreditReport, you can detect:
+
+$0 on TU vs $11,265 on EX/EQ (GM Financial),
+
+status differences (current vs 120 days late),
+
+etc.
+
+For single-bureau reports you just won’t trigger those cross-bureau rules (since there’s only one snapshot per tradeline).
+
+5️⃣ Letter generation still behaves identically
+
+You already have this pattern in place for generateAllDisputeLetters and /api/dispute-letters/generate:
+
+User selects issues on /reports/:id.
+
+Chooses:
+
+Recipient Type: Bureau vs Collector.
+
+Target bureau (Experian/Equifax/TransUnion) OR collector name.
+
+Backend calls:
+
+const { bureauLetters, collectorLetters } = await generateAllDisputeLetters({
+  report,
+  issues,
+  aiExplanations,
+  userInfo,
+  round
+});
+
+
+To make tri-merge behave correctly:
+
+When recipientType = 'BUREAU', the backend should only include issues whose relatedAccount.bureauScope includes that bureau.
+
+const filteredIssues = issues.filter(issue =>
+  issue.relatedAccount?.bureauScope?.includes(targetBureau)
+);
+
+
+Then pass filteredIssues into generateAllDisputeLetters (or filter inside that function).
+
+generateAllDisputeLetters will:
+
+Aggregate all FCRA/Metro 2 angles for that bureau.
+
+Insert the right address (Experian, Equifax, TransUnion).
+
+Output the HTML, which you convert to PDF.
+
+From the user’s perspective:
+
+Upload tri-merge PDF → app parses once → they see one report with all issues and can generate:
+
+Experian letter,
+
+Equifax letter,
+
+TransUnion letter,
+
+LVNV / Absolute / Harvard / etc. letters…
+
+Upload single-bureau report → same flow, just fewer cross-bureau issues.
+
+6️⃣ Frontend: treat tri-merge reports the same
+
+On the UI side, nothing special is really needed beyond showing that it’s a tri-merge.
+
+In /reports list:
+
+// e.g. in ReportsTable row
+const label =
+  report.meta.bureausIncluded.length === 3
+    ? 'Tri-merge (EX/EQ/TU)'
+    : report.meta.bureausIncluded.join(', ');
+
+
+On /reports/:id, when you build the collector dropdown and bureau dropdown, you just:
+
+Show “Experian / Equifax / TransUnion” if meta.bureausIncluded contains them.
+
+For tri-merge, all three will be available; for single-bureau, only one.
+
+Everything else (selection → /api/dispute-letters/generate) is unchanged.
+
+TL;DR
+
+To ensure tri-merge uploads behave exactly like single-bureau uploads:
+
+Use the same upload endpoint, with bureau: 'TRI' as a hint.
+
+Make CreditReport tri-aware:
+
+meta.bureausIncluded
+
+tradelines[].bureauSnapshots and collections[].bureauSnapshots.
+
+Teach the AI parser to split the tri-merge PDF into per-bureau snapshots within one CreditReport.
+
+Rules engine reads bureauSnapshots to:
+
+detect cross-bureau inconsistencies;
+
+still operate fine when only 1 bureau is present.
+
+Letter generation filters issues by target bureau/collector and runs exactly the same path for tri-merge vs single-bureau.
+
+UI just shows that a report is “Tri-merge” and offers all applicable bureaus as targets.

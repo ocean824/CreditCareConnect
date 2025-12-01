@@ -1,0 +1,375 @@
+wire parseCreditReportWithAiOnly into /api/credit-reports/upload, persist the parsed JSON into credit_reports, then call analyzeWithRulesEngine and save violations + violation_explanations.
+
+You can tweak names if your repo differs, but this is structured for a Node/TS/Express + Drizzle-style stack.
+
+Replit Agent Prompt
+
+Project Name: Credit Dispute AI Engine – Upload → Parse → Analyze
+
+Goal:
+Wire the AI parser parseCreditReportWithAiOnly into the /api/credit-reports/upload endpoint so that:
+
+The uploaded IdentityIQ (or tri-merge) credit report is parsed into a normalized CreditReport object.
+
+The parsed JSON is stored in the credit_reports table.
+
+The rules engine analyzeWithRulesEngine is run to produce violations and aiExplanations.
+
+The violations and their AI explanations are saved into violations and violation_explanations tables.
+
+The API responds with { ok: true, reportId, issuesCount }.
+
+Tech / Context
+
+You are working in a Node + TypeScript backend with Express (or similar) and a SQL database accessed via an ORM (Drizzle or Prisma). There is already a route namespace for credit reports and a rules engine module.
+
+Key pieces that MUST be used:
+
+parseCreditReportWithAiOnly(params: ParseCreditReportWithAiOnlyParams): Promise<CreditReport>
+
+Located in something like: src/server/services/creditReportParser.ts.
+
+analyzeWithRulesEngine({ report, userId })
+
+Located in something like: src/server/services/rulesEngine.ts or src/server/services/creditRulesEngine.ts.
+
+Auth middleware such as requireAuth (if it already exists for other protected routes).
+
+Core types (do NOT rename):
+
+From src/server/types/credit.ts (or similar):
+
+export type BureauCode = 'TRI' | 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION';
+
+export interface CreditReportMeta {
+  id: string;
+  provider: string;
+  reportDate: string; // ISO
+  bureausIncluded: Exclude<BureauCode, 'TRI'>[];
+}
+
+export type AccountStatus =
+  | 'OPEN'
+  | 'CLOSED'
+  | 'CURRENT'
+  | 'LATE_30'
+  | 'LATE_60'
+  | 'LATE_90'
+  | 'LATE_120'
+  | 'LATE_150_PLUS'
+  | 'COLLECTION'
+  | 'CHARGE_OFF'
+  | 'FORECLOSURE'
+  | 'REPOSSESSION'
+  | 'UNKNOWN';
+
+export type TradelineType =
+  | 'MORTGAGE'
+  | 'AUTO'
+  | 'CREDIT_CARD'
+  | 'PERSONAL_LOAN'
+  | 'HELOC'
+  | 'STUDENT_LOAN'
+  | 'OTHER';
+
+export type CollectionStatus = 'OPEN_COLLECTION' | 'PAID_COLLECTION' | 'SETTLED' | 'UNKNOWN';
+
+export interface BureauSnapshot {
+  bureau: Exclude<BureauCode, 'TRI'>;
+  status: AccountStatus;
+  balance: number | null;
+  pastDue: number | null;
+}
+
+export interface Tradeline {
+  id: string;
+  creditorName: string;
+  accountNumberLast4?: string;
+  type: TradelineType;
+  status: AccountStatus;
+  balance: number | null;
+  pastDue: number | null;
+  bureaus: Exclude<BureauCode, 'TRI'>[];
+  bureauSnapshots: BureauSnapshot[];
+  remarks?: string[];
+}
+
+export interface CollectionAccount {
+  id: string;
+  collectorName: string;
+  originalCreditorName?: string;
+  status: CollectionStatus;
+  balance: number | null;
+  bureaus: Exclude<BureauCode, 'TRI'>[];
+  bureauSnapshots: BureauSnapshot[];
+  remarks?: string[];
+}
+
+export interface PublicRecord {
+  id: string;
+  type: string;
+  courtName?: string;
+  amount?: number | null;
+  bureaus: Exclude<BureauCode, 'TRI'>[];
+}
+
+export interface Inquiry {
+  id: string;
+  bureau: Exclude<BureauCode, 'TRI'>;
+  inquirerName: string;
+  date: string; // ISO
+  type?: string;
+}
+
+export interface CreditReport {
+  id: string;
+  userId: string;
+  meta: CreditReportMeta;
+  tradelines: Tradeline[];
+  collections: CollectionAccount[];
+  publicRecords: PublicRecord[];
+  inquiries: Inquiry[];
+}
+
+DB Schema Requirements
+
+Make sure the database has at least these tables/columns. If they already exist, use them; if not, create migrations consistent with the existing ORM and migration style.
+
+credit_reports
+
+id – primary key (UUID or string)
+
+user_id – foreign key to users table
+
+meta_json – JSON/JSONB (stores CreditReport.meta)
+
+report_json – JSON/JSONB (stores the full CreditReport object)
+
+created_at – timestamp
+
+updated_at – timestamp
+
+violations
+
+id – primary key
+
+report_id – foreign key → credit_reports.id
+
+user_id – foreign key → users.id
+
+rule_id – string (matches the rule IDs in the rules catalog)
+
+category – string (e.g., 'FCRA' | 'METRO2' | 'FDCPA' | 'OTHER')
+
+severity – string (e.g., 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL')
+
+description – text (human-readable summary)
+
+account_ref – JSON/JSONB (e.g., tradeline/collection ids & bureau info)
+
+created_at – timestamp
+
+violation_explanations
+
+id – primary key
+
+violation_id – foreign key → violations.id
+
+ai_model – string (e.g., 'gpt-5.1')
+
+explanation – text (plain English explanation shown in UI)
+
+raw_json – JSON/JSONB (optional full AI explanation payload)
+
+created_at – timestamp
+
+If the repo already defines similar tables with slightly different names or columns, reuse them and adapt the insert logic instead of creating duplicates.
+
+Route to Implement / Wire Up
+
+Implement or update:
+
+File: src/server/routes/creditReports.ts (or the equivalent routes file)
+
+Endpoint: POST /api/credit-reports/upload
+
+Requirements:
+
+Use existing auth middleware if present, e.g.:
+
+router.post('/upload', requireAuth, async (req, res) => { ... });
+
+
+Request body should be JSON with at least:
+
+type UploadBody = {
+  filePath: string;                  // path in your storage or local FS for the uploaded PDF
+  bureau?: 'TRI' | 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION';
+  provider?: string;                 // optional, default 'IDENTITYIQ'
+};
+
+
+Validate the body. If filePath is missing, return 400.
+
+Load the raw PDF text using an existing helper (if one exists) such as:
+
+extractPdfText(filePath) OR
+
+ocrPdfOrImage(filePath)
+
+If there is such a utility already in the repo, reuse it. If not, create a minimal placeholder extractPdfText function that reads the file and returns string, and leave a TODO comment for OCR.
+
+Call the AI parser:
+
+import { parseCreditReportWithAiOnly } from '../services/creditReportParser';
+
+const bureauHint = body.bureau ?? 'TRI';
+
+const report = await parseCreditReportWithAiOnly({
+  rawText,
+  bureauHint,
+  provider: body.provider ?? 'IDENTITYIQ',
+  userId: req.user.id,
+  existingReportId: undefined
+});
+
+
+Persist the CreditReport in credit_reports:
+
+Insert a new row with:
+
+id (either from report.id or generated UUID),
+
+user_id = req.user.id,
+
+meta_json = report.meta,
+
+report_json = full report.
+
+Example (Drizzle-style pseudo-code, adapt to actual ORM):
+
+const [inserted] = await db
+  .insert(creditReports)
+  .values({
+    id: report.id,         // or generatedId
+    userId: req.user.id,
+    metaJson: report.meta,
+    reportJson: report,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  })
+  .returning({ id: creditReports.id });
+const reportId = inserted.id;
+
+
+Run the rules engine:
+
+import { analyzeWithRulesEngine } from '../services/rulesEngine';
+
+const { issues, aiExplanations } = await analyzeWithRulesEngine({
+  report,
+  userId: req.user.id
+});
+
+
+Here:
+
+issues is an array of IssueFlag objects.
+
+aiExplanations is either:
+
+a map from violation id → AiIssueExplanation, or
+
+an array containing violationId, explanation, model, and rawJson.
+
+Inspect the existing analyzeWithRulesEngine implementation to see its exact return type and adjust accordingly.
+
+Insert all issues into the violations table:
+
+For each issue:
+
+report_id = reportId
+
+user_id = req.user.id
+
+rule_id = issue.ruleId
+
+category = issue.category
+
+severity = issue.severity
+
+description = issue.description
+
+account_ref = JSON reference (e.g., { tradelineId, collectionId, bureaus } from the issue)
+
+Use bulk insert if supported by the ORM.
+
+Insert all AI explanations into violation_explanations:
+
+Map each AiIssueExplanation back to its corresponding violation id.
+
+Insert:
+
+violation_id
+
+ai_model
+
+explanation
+
+raw_json
+
+Respond with JSON:
+
+return res.status(200).json({
+  ok: true,
+  reportId,
+  issuesCount: issues.length
+});
+
+
+Make sure error paths return appropriate HTTP statuses and JSON:
+
+400 for bad input
+
+500 for unexpected errors (log the error server-side, don’t leak stack traces to client)
+
+Constraints / Don’ts
+
+Do NOT remove or break any existing routes (especially /api/dispute-letters/generate or existing /api/credit-reports GET endpoints).
+
+Do NOT change the public shape of the existing CreditReport type.
+
+Do NOT change any of the FCRA/Metro 2/FDCPA wording logic in the dispute-letter generator.
+
+Keep all new code in TypeScript, consistent with the project’s current style (imports, eslint, etc.).
+
+Verification Steps
+
+After implementing:
+
+Run TypeScript build / type-check (e.g. npm run build or npm run lint).
+
+Run existing tests (if present).
+
+Manually test the new endpoint locally:
+
+POST /api/credit-reports/upload with a JSON body like:
+
+{
+  "filePath": "/path/to/test-identityiq-trimerge.pdf",
+  "bureau": "TRI",
+  "provider": "IDENTITYIQ"
+}
+
+
+Confirm response: { "ok": true, "reportId": "...", "issuesCount": 10 } (number will vary).
+
+Confirm DB entries:
+
+Row in credit_reports for that reportId.
+
+Multiple rows in violations referencing reportId.
+
+Matching rows in violation_explanations.
+
+Once everything passes, leave TODO comments if any steps require real OCR or production-ready file storage.

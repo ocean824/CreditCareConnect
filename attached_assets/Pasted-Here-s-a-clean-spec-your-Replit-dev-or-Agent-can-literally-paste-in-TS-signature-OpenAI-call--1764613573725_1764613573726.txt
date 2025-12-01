@@ -1,0 +1,635 @@
+Here’s a clean spec your Replit dev (or Agent) can literally paste in: TS signature + OpenAI call + prompts tuned specifically for IdentityIQ Tri-Merge PDFs.
+
+I’ll give you:
+
+The TypeScript signature & params for parseCreditReportWithAiOnly.
+
+A strict system prompt describing the CreditReport JSON shape (including tri-merge logic).
+
+A user prompt template that injects the IdentityIQ text + bureau hint.
+
+A full skeleton implementation using the OpenAI Node client + json_schema output.
+
+1️⃣ TypeScript signature
+
+Put this in server/services/creditReportParser.ts (or similar):
+
+// server/types/credit.ts (assumed existing)
+export type BureauCode = 'TRI' | 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION';
+
+export interface CreditReportMeta {
+  id: string;
+  provider: string;        // e.g. 'IDENTITYIQ'
+  reportDate: string;      // ISO-8601
+  bureausIncluded: Exclude<BureauCode, 'TRI'>[]; // e.g. ['EXPERIAN','EQUIFAX','TRANSUNION']
+}
+
+export type AccountStatus =
+  | 'OPEN'
+  | 'CLOSED'
+  | 'CURRENT'
+  | 'LATE_30'
+  | 'LATE_60'
+  | 'LATE_90'
+  | 'LATE_120'
+  | 'LATE_150_PLUS'
+  | 'COLLECTION'
+  | 'CHARGE_OFF'
+  | 'FORECLOSURE'
+  | 'REPOSSESSION'
+  | 'UNKNOWN';
+
+export type TradelineType =
+  | 'MORTGAGE'
+  | 'AUTO'
+  | 'CREDIT_CARD'
+  | 'PERSONAL_LOAN'
+  | 'HELOC'
+  | 'STUDENT_LOAN'
+  | 'OTHER';
+
+export type CollectionStatus = 'OPEN_COLLECTION' | 'PAID_COLLECTION' | 'SETTLED' | 'UNKNOWN';
+
+export interface BureauSnapshot {
+  bureau: Exclude<BureauCode, 'TRI'>; // 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION'
+  status: AccountStatus;
+  balance: number | null;
+  pastDue: number | null;
+}
+
+export interface Tradeline {
+  id: string;
+  creditorName: string;
+  accountNumberLast4?: string;
+  type: TradelineType;
+  status: AccountStatus;
+  balance: number | null;
+  pastDue: number | null;
+  bureaus: Exclude<BureauCode, 'TRI'>[];
+  bureauSnapshots: BureauSnapshot[];
+  remarks?: string[];
+}
+
+export interface CollectionAccount {
+  id: string;
+  collectorName: string;
+  originalCreditorName?: string;
+  status: CollectionStatus;
+  balance: number | null;
+  bureaus: Exclude<BureauCode, 'TRI'>[];
+  bureauSnapshots: BureauSnapshot[];
+  remarks?: string[];
+}
+
+export interface PublicRecord {
+  id: string;
+  type: string;
+  courtName?: string;
+  amount?: number | null;
+  bureaus: Exclude<BureauCode, 'TRI'>[];
+}
+
+export interface Inquiry {
+  id: string;
+  bureau: Exclude<BureauCode, 'TRI'>;
+  inquirerName: string;
+  date: string; // ISO
+  type?: string;
+}
+
+export interface CreditReport {
+  id: string;
+  userId: string;
+  meta: CreditReportMeta;
+  tradelines: Tradeline[];
+  collections: CollectionAccount[];
+  publicRecords: PublicRecord[];
+  inquiries: Inquiry[];
+}
+
+
+Parser function signature:
+
+// server/services/creditReportParser.ts
+import { CreditReport, BureauCode } from '../types/credit';
+
+export interface ParseCreditReportWithAiOnlyParams {
+  /** Full extracted text of the IdentityIQ (or other) credit report PDF */
+  rawText: string;
+
+  /**
+   * Hint for the parser:
+   * - 'TRI' = IdentityIQ tri-merge (contains Experian, Equifax, TransUnion)
+   * - A single bureau if you know this is just EX/EQ/TU
+   */
+  bureauHint: BureauCode;
+
+  /**
+   * Optional provider name (defaults to 'IDENTITYIQ').
+   * Used in meta.provider and to steer the prompt.
+   */
+  provider?: string;
+
+  /** User ID to attach to CreditReport.id/userId later in the pipeline (can be stubbed here). */
+  userId: string;
+
+  /** Optional existing reportId if you want to reuse a DB id (can be omitted). */
+  existingReportId?: string;
+}
+
+/**
+ * Parse a credit report (IdentityIQ tri-merge or single-bureau) using ONLY the AI parser.
+ * Returns a normalized CreditReport object ready for rules engine + letters.
+ */
+export async function parseCreditReportWithAiOnly(
+  params: ParseCreditReportWithAiOnlyParams
+): Promise<CreditReport> {
+  // implementation below
+}
+
+2️⃣ System prompt for IdentityIQ Tri-Merge
+
+Export this constant so your Replit Agent can see exactly what the model must do:
+
+// server/services/creditReportParser.ts (or config/prompts.ts)
+
+/**
+ * System prompt for IdentityIQ tri-merge / single-bureau parsing.
+ * The model MUST output a single JSON object matching the CreditReport type.
+ */
+export const IDENTITYIQ_TRI_MERGE_SYSTEM_PROMPT = `
+You are a strict JSON-only parser for consumer credit reports, especially IdentityIQ tri-merge PDFs.
+
+Your job:
+- Read raw text of a credit report (often IdentityIQ tri-merge including Experian, Equifax, and TransUnion).
+- Normalize it into a single JSON object with the exact shape of the CreditReport type described below.
+- When the report is tri-merge, you MUST:
+  - Detect which tradelines/collections appear on which bureaus,
+  - Link the same underlying debt across bureaus,
+  - Populate per-bureau snapshots (bureauSnapshots) for tradelines and collections.
+- When the report is single-bureau, you still output the same CreditReport shape,
+  but bureausIncluded and bureauSnapshots will only contain that one bureau.
+
+OUTPUT RULES (CRITICAL):
+- Output MUST be a single JSON object ONLY. No markdown. No prose. No explanations.
+- Field names MUST exactly match the type definitions.
+- If a field value is unknown or not present in the source text, use null or an empty array rather than guessing.
+- All money amounts should be numeric (no '$' or commas).
+
+CREDITREPORT TYPE (STRUCTURE YOU MUST RETURN):
+
+{
+  "id": "string",              // leave as a simple string (e.g., a placeholder ID)
+  "userId": "string",          // echo back the userId you are given in the instructions
+  "meta": {
+    "id": "string",            // can match the report id or be a simple string
+    "provider": "IDENTITYIQ",  // or another provider if clearly indicated
+    "reportDate": "YYYY-MM-DD" // from IdentityIQ report date; if unknown use null or "" 
+    "bureausIncluded": [ "EXPERIAN", "EQUIFAX", "TRANSUNION" ] // for tri-merge; otherwise the single bureau
+  },
+  "tradelines": [
+    {
+      "id": "string",                 // unique within this report
+      "creditorName": "string",       // e.g., "CROSSCOUNTRY MORTGAGE"
+      "accountNumberLast4": "string", // last 4 if visible; otherwise null or omit
+      "type": "MORTGAGE" | "AUTO" | "CREDIT_CARD" | "PERSONAL_LOAN" | "HELOC" | "STUDENT_LOAN" | "OTHER",
+      "status": "OPEN" | "CLOSED" | "CURRENT" | "LATE_30" | "LATE_60" | "LATE_90" | "LATE_120" | "LATE_150_PLUS" | "COLLECTION" | "CHARGE_OFF" | "FORECLOSURE" | "REPOSSESSION" | "UNKNOWN",
+      "balance": 1234.56,      // numeric; null if unknown
+      "pastDue": 123.45,       // numeric; null if unknown
+      "bureaus": [ "EXPERIAN", "EQUIFAX" ], // which bureaus report this tradeline in the report
+      "bureauSnapshots": [
+        {
+          "bureau": "EXPERIAN",
+          "status": "CHARGE_OFF" | "LATE_120" | "CURRENT" | ...,
+          "balance": 1234.56,
+          "pastDue": 0
+        },
+        {
+          "bureau": "EQUIFAX",
+          "status": "LATE_180" | ...,
+          "balance": 1234.56,
+          "pastDue": 1234.56
+        }
+      ],
+      "remarks": [
+        "string remarks exactly as they appear when helpful, e.g., 'Account information disputed by consumer', 'Purchased by another lender', 'Freddie Mac account', etc."
+      ]
+    }
+  ],
+  "collections": [
+    {
+      "id": "string",
+      "collectorName": "string",             // e.g., "LVNV FUNDING"
+      "originalCreditorName": "string|null", // e.g., "SYNCHRONY BANK / CARECREDIT"
+      "status": "OPEN_COLLECTION" | "PAID_COLLECTION" | "SETTLED" | "UNKNOWN",
+      "balance": 1572.00,
+      "bureaus": [ "TRANSUNION", "EXPERIAN" ],
+      "bureauSnapshots": [
+        {
+          "bureau": "TRANSUNION",
+          "status": "OPEN_COLLECTION",
+          "balance": 1572.00,
+          "pastDue": 0
+        },
+        {
+          "bureau": "EXPERIAN",
+          "status": "OPEN_COLLECTION",
+          "balance": 1572.00,
+          "pastDue": 0
+        }
+      ],
+      "remarks": [
+        "Account information disputed by consumer, meets FCRA requirements"
+      ]
+    }
+  ],
+  "publicRecords": [
+    {
+      "id": "string",
+      "type": "BANKRUPTCY" | "TAX_LIEN" | "JUDGMENT" | "OTHER",
+      "courtName": "string|null",
+      "amount": 0 | 1234.56 | null,
+      "bureaus": [ "EXPERIAN", "EQUIFAX", "TRANSUNION" ]
+    }
+  ],
+  "inquiries": [
+    {
+      "id": "string",
+      "bureau": "EXPERIAN" | "EQUIFAX" | "TRANSUNION",
+      "inquirerName": "string",
+      "date": "YYYY-MM-DD",
+      "type": "HARD" | "SOFT" | null
+    }
+  ]
+}
+
+TRI-MERGE LINKING RULES (VERY IMPORTANT):
+- IdentityIQ tri-merge reports commonly list accounts separately under:
+  - "Experian", "Equifax", and "TransUnion" sections.
+- When the SAME underlying debt appears across multiple bureaus:
+  - You MUST merge them into a single tradeline or collection in the JSON.
+  - Use creditor name, original creditor name, account number last 4, open date, and similar balances to determine matches.
+  - Example: "GM FINANCIAL" auto loan appearing as $0 on TransUnion but ~$11,265 on Experian/Equifax is ONE tradeline with three bureauSnapshots.
+- In that case:
+  - tradeline.bureaus = ["EXPERIAN", "EQUIFAX", "TRANSUNION"]
+  - tradeline.bureauSnapshots = array of 3 entries, one per bureau with that bureau's status/balance/pastDue.
+- If an account only appears on one bureau, you still use the same structure with a single bureauSnapshot.
+
+SINGLE-BUREAU CASE:
+- If you are told the report is for only one bureau, or the text clearly shows only Experian/Eq/TU:
+  - meta.bureausIncluded contains ONLY that bureau.
+  - Each tradeline/collection has bureaus: ["EXPERIAN"] (or the appropriate one).
+  - bureauSnapshots has a single entry for that bureau.
+
+NORMALIZATION RULES:
+- Parse money values into numbers (e.g., "$11,265" -> 11265).
+- Map status phrases into the AccountStatus / CollectionStatus enums.
+  Example:
+    "Collection / chargeoff" => status "CHARGE_OFF" (for tradelines) or "OPEN_COLLECTION" (for third-party collections).
+    "Foreclosure" => "FORECLOSURE".
+    "120 days late" => "LATE_120".
+- If you are unsure which enum to pick, use "UNKNOWN".
+
+If anything in the raw text is illegible or missing:
+- Use null/empty values rather than guessing.
+- Always return syntactically valid JSON that matches the described structure.
+`;
+
+3️⃣ User prompt template builder
+
+This is the user message that feeds in the raw IdentityIQ text + context like bureauHint, provider, and userId.
+
+// server/services/creditReportParser.ts
+
+export function buildIdentityIqUserPrompt(params: {
+  rawText: string;
+  bureauHint: BureauCode;
+  provider?: string;
+  userId: string;
+  existingReportId?: string;
+}): string {
+  const { rawText, bureauHint, provider = 'IDENTITYIQ', userId, existingReportId } = params;
+
+  // To avoid token blowup, you can slice or chunk rawText,
+  // but here we simply slice to a large limit. Replit can refine later.
+  const snippet = rawText.length > 16000 ? rawText.slice(0, 16000) : rawText;
+
+  return `
+You will be given the raw text of a consumer credit report.
+
+Provider hint: ${provider}
+Bureau hint: ${bureauHint}
+User ID: ${userId}
+Existing report ID (optional): ${existingReportId ?? 'none'}
+
+If bureauHint == "TRI":
+- Assume this is a tri-merge report that includes Experian, Equifax, and TransUnion data.
+- IdentityIQ often labels sections clearly (e.g., "Experian", "Equifax", "TransUnion" headers).
+- You MUST:
+  - Identify the three bureau sections,
+  - Match tradelines and collections that refer to the same underlying account across bureaus,
+  - Populate tradelines[].bureaus and tradelines[].bureauSnapshots accordingly,
+  - Populate collections[].bureaus and collections[].bureauSnapshots accordingly,
+  - Set meta.bureausIncluded to the list of bureaus actually present (usually all three).
+
+If bureauHint is a single bureau (EXPERIAN/EQUIFAX/TRANSUNION):
+- Assume this text only reflects that bureau.
+- meta.bureausIncluded should be [that bureau].
+- All tradelines/collections/inquiries should have bureaus / bureauSnapshots limited to that one bureau.
+
+When you construct the JSON:
+
+- Set creditReport.id to existingReportId if provided; otherwise use a simple string (e.g., "report-1").
+- Set creditReport.userId to the userId provided above.
+- meta.provider should be "${provider}" unless the raw text clearly shows a different provider.
+- meta.reportDate should come from the report date in the text (IdentityIQ usually shows it on the first pages). Use "YYYY-MM-DD". If you cannot determine a date, use "".
+
+RAW REPORT TEXT (POSSIBLY TRUNCATED FOR LENGTH):
+
+"""${snippet}"""
+
+Now return ONLY a single JSON object matching the CreditReport structure described in the system prompt. Do NOT include any explanations or commentary.
+`;
+}
+
+4️⃣ Full skeleton implementation using OpenAI (json_schema)
+
+This wires it all together and shows Replit exactly how to call the model.
+
+// server/services/creditReportParser.ts
+import OpenAI from 'openai';
+import {
+  CreditReport,
+  BureauCode
+} from '../types/credit';
+import {
+  IDENTITYIQ_TRI_MERGE_SYSTEM_PROMPT,
+  buildIdentityIqUserPrompt,
+  ParseCreditReportWithAiOnlyParams
+} from './prompts-or-this-file';
+
+// Optional: if you want a JSON schema object for response_format
+// This can be refined, but give the agent a structure to work with:
+export const CREDIT_REPORT_JSON_SCHEMA = {
+  name: 'CreditReport',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      id: { type: 'string' },
+      userId: { type: 'string' },
+      meta: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string' },
+          provider: { type: 'string' },
+          reportDate: { type: 'string' },
+          bureausIncluded: {
+            type: 'array',
+            items: {
+              type: 'string',
+              enum: ['EXPERIAN', 'EQUIFAX', 'TRANSUNION']
+            }
+          }
+        },
+        required: ['id', 'provider', 'reportDate', 'bureausIncluded']
+      },
+      tradelines: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+            creditorName: { type: 'string' },
+            accountNumberLast4: { type: ['string', 'null'] },
+            type: {
+              type: 'string',
+              enum: [
+                'MORTGAGE',
+                'AUTO',
+                'CREDIT_CARD',
+                'PERSONAL_LOAN',
+                'HELOC',
+                'STUDENT_LOAN',
+                'OTHER'
+              ]
+            },
+            status: {
+              type: 'string',
+              enum: [
+                'OPEN',
+                'CLOSED',
+                'CURRENT',
+                'LATE_30',
+                'LATE_60',
+                'LATE_90',
+                'LATE_120',
+                'LATE_150_PLUS',
+                'COLLECTION',
+                'CHARGE_OFF',
+                'FORECLOSURE',
+                'REPOSSESSION',
+                'UNKNOWN'
+              ]
+            },
+            balance: { type: ['number', 'null'] },
+            pastDue: { type: ['number', 'null'] },
+            bureaus: {
+              type: 'array',
+              items: { type: 'string', enum: ['EXPERIAN', 'EQUIFAX', 'TRANSUNION'] }
+            },
+            bureauSnapshots: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  bureau: {
+                    type: 'string',
+                    enum: ['EXPERIAN', 'EQUIFAX', 'TRANSUNION']
+                  },
+                  status: {
+                    type: 'string',
+                    enum: [
+                      'OPEN',
+                      'CLOSED',
+                      'CURRENT',
+                      'LATE_30',
+                      'LATE_60',
+                      'LATE_90',
+                      'LATE_120',
+                      'LATE_150_PLUS',
+                      'COLLECTION',
+                      'CHARGE_OFF',
+                      'FORECLOSURE',
+                      'REPOSSESSION',
+                      'UNKNOWN'
+                    ]
+                  },
+                  balance: { type: ['number', 'null'] },
+                  pastDue: { type: ['number', 'null'] }
+                },
+                required: ['bureau', 'status', 'balance', 'pastDue']
+              }
+            },
+            remarks: {
+              type: 'array',
+              items: { type: 'string' }
+            }
+          },
+          required: [
+            'id',
+            'creditorName',
+            'type',
+            'status',
+            'balance',
+            'pastDue',
+            'bureaus',
+            'bureauSnapshots'
+          ]
+        }
+      },
+      collections: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+            collectorName: { type: 'string' },
+            originalCreditorName: { type: ['string', 'null'] },
+            status: {
+              type: 'string',
+              enum: ['OPEN_COLLECTION', 'PAID_COLLECTION', 'SETTLED', 'UNKNOWN']
+            },
+            balance: { type: ['number', 'null'] },
+            bureaus: {
+              type: 'array',
+              items: { type: 'string', enum: ['EXPERIAN', 'EQUIFAX', 'TRANSUNION'] }
+            },
+            bureauSnapshots: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  bureau: {
+                    type: 'string',
+                    enum: ['EXPERIAN', 'EQUIFAX', 'TRANSUNION']
+                  },
+                  status: {
+                    type: 'string',
+                    enum: ['OPEN_COLLECTION', 'PAID_COLLECTION', 'SETTLED', 'UNKNOWN']
+                  },
+                  balance: { type: ['number', 'null'] },
+                  pastDue: { type: ['number', 'null'] }
+                },
+                required: ['bureau', 'status', 'balance', 'pastDue']
+              }
+            },
+            remarks: {
+              type: 'array',
+              items: { type: 'string' }
+            }
+          },
+          required: [
+            'id',
+            'collectorName',
+            'status',
+            'balance',
+            'bureaus',
+            'bureauSnapshots'
+          ]
+        }
+      },
+      publicRecords: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+            type: { type: 'string' },
+            courtName: { type: ['string', 'null'] },
+            amount: { type: ['number', 'null'] },
+            bureaus: {
+              type: 'array',
+              items: { type: 'string', enum: ['EXPERIAN', 'EQUIFAX', 'TRANSUNION'] }
+            }
+          },
+          required: ['id', 'type', 'bureaus']
+        }
+      },
+      inquiries: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+            bureau: {
+              type: 'string',
+              enum: ['EXPERIAN', 'EQUIFAX', 'TRANSUNION']
+            },
+            inquirerName: { type: 'string' },
+            date: { type: 'string' },
+            type: { type: ['string', 'null'] }
+          },
+          required: ['id', 'bureau', 'inquirerName', 'date']
+        }
+      }
+    },
+    required: ['id', 'userId', 'meta', 'tradelines', 'collections', 'publicRecords', 'inquiries']
+  }
+} as const;
+
+// OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!
+});
+
+export async function parseCreditReportWithAiOnly(
+  params: ParseCreditReportWithAiOnlyParams
+): Promise<CreditReport> {
+  const { rawText, bureauHint, provider = 'IDENTITYIQ', userId, existingReportId } = params;
+
+  const systemPrompt = IDENTITYIQ_TRI_MERGE_SYSTEM_PROMPT;
+  const userPrompt = buildIdentityIqUserPrompt({
+    rawText,
+    bureauHint,
+    provider,
+    userId,
+    existingReportId
+  });
+
+  const response = await openai.responses.create({
+    model: process.env.OPENAI_MODEL || 'gpt-5.1-chat',
+    input: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    response_format: {
+      type: 'json_schema',
+      json_schema: CREDIT_REPORT_JSON_SCHEMA
+    }
+  });
+
+  const first = response.output[0].content[0];
+  if (first.type !== 'output_json') {
+    throw new Error('Unexpected OpenAI response format: expected output_json');
+  }
+
+  const parsed = first.parsed as unknown as CreditReport;
+
+  // 🔒 Minimal sanity checks; Replit can add zod validation here
+  if (!parsed || !parsed.meta || !parsed.tradelines || !Array.isArray(parsed.tradelines)) {
+    throw new Error('Invalid CreditReport JSON from AI parser');
+  }
+
+  // Optionally override ids with your own UUIDs here if you want
+  // before saving to DB.
+
+  return parsed;
+}

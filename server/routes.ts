@@ -430,11 +430,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
             throw new Error(`Failed to extract text from credit report: ${ocrError.message}`);
           }
           
-          // Parse the text into a structured CreditReport object using AI
+          // Parse the text into a structured CreditReport object using AI (tri-merge capable)
           let parsedReport;
           try {
-            console.log(`🤖 Parsing credit report with AI...`);
-            parsedReport = await parseCreditReportText(reportText, bureau);
+            console.log(`🤖 Parsing credit report with AI (tri-merge enabled)...`);
+            const { parseCreditReportWithAiOnly } = await import('./services/creditReportParserV2');
+            const triMergeReport = await parseCreditReportWithAiOnly({
+              rawText: reportText,
+              bureauHint: (bureau || 'TRI') as any,
+              provider: 'IDENTITYIQ',
+              userId: userId,
+            });
+            
+            // Convert tri-merge format to legacy format for compatibility
+            parsedReport = convertTriMergeToLegacy(triMergeReport);
             
             // Log parsing results
             const bureauCount = parsedReport.bureaus.length;

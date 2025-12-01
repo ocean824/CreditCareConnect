@@ -1,0 +1,92 @@
+// Enhanced credit report types supporting tri-merge parsing
+export type BureauCode = 'TRI' | 'EXPERIAN' | 'EQUIFAX' | 'TRANSUNION';
+
+export interface CreditReportMeta {
+  id: string;
+  provider: string; // e.g. 'IDENTITYIQ'
+  reportDate: string; // ISO-8601
+  bureausIncluded: Exclude<BureauCode, 'TRI'>[]; // e.g. ['EXPERIAN','EQUIFAX','TRANSUNION']
+}
+
+export type AccountStatus =
+  | 'OPEN'
+  | 'CLOSED'
+  | 'CURRENT'
+  | 'LATE_30'
+  | 'LATE_60'
+  | 'LATE_90'
+  | 'LATE_120'
+  | 'LATE_150_PLUS'
+  | 'COLLECTION'
+  | 'CHARGE_OFF'
+  | 'FORECLOSURE'
+  | 'REPOSSESSION'
+  | 'UNKNOWN';
+
+export type TradelineType =
+  | 'MORTGAGE'
+  | 'AUTO'
+  | 'CREDIT_CARD'
+  | 'PERSONAL_LOAN'
+  | 'HELOC'
+  | 'STUDENT_LOAN'
+  | 'OTHER';
+
+export type CollectionStatus = 'OPEN_COLLECTION' | 'PAID_COLLECTION' | 'SETTLED' | 'UNKNOWN';
+
+export interface BureauSnapshot {
+  bureau: Exclude<BureauCode, 'TRI'>;
+  status: AccountStatus;
+  balance: number | null;
+  pastDue: number | null;
+}
+
+export interface Tradeline {
+  id: string;
+  creditorName: string;
+  accountNumberLast4?: string;
+  type: TradelineType;
+  status: AccountStatus;
+  balance: number | null;
+  pastDue: number | null;
+  bureaus: Exclude<BureauCode, 'TRI'>[];
+  bureauSnapshots: BureauSnapshot[];
+  remarks?: string[];
+}
+
+export interface CollectionAccount {
+  id: string;
+  collectorName: string;
+  originalCreditorName?: string;
+  status: CollectionStatus;
+  balance: number | null;
+  bureaus: Exclude<BureauCode, 'TRI'>[];
+  bureauSnapshots: BureauSnapshot[];
+  remarks?: string[];
+}
+
+export interface PublicRecord {
+  id: string;
+  type: string;
+  courtName?: string;
+  amount?: number | null;
+  bureaus: Exclude<BureauCode, 'TRI'>[];
+}
+
+export interface Inquiry {
+  id: string;
+  bureau: Exclude<BureauCode, 'TRI'>;
+  inquirerName: string;
+  date: string; // ISO
+  type?: string;
+}
+
+export interface TriMergeCreditReport {
+  id: string;
+  userId: string;
+  meta: CreditReportMeta;
+  tradelines: Tradeline[];
+  collections: CollectionAccount[];
+  publicRecords: PublicRecord[];
+  inquiries: Inquiry[];
+}
