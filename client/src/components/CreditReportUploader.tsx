@@ -14,6 +14,8 @@ export default function CreditReportUploader() {
 
   const uploadMutation = useMutation({
     mutationFn: async ({ file, bureau }: { file: File; bureau: string }) => {
+      console.log("[CreditReportUploader] Starting upload for:", file.name, "bureau:", bureau);
+      
       // Step 1: Upload the file to the server
       const formData = new FormData();
       formData.append('file', file);
@@ -24,21 +26,41 @@ export default function CreditReportUploader() {
         credentials: 'include',
       });
       
+      console.log("[CreditReportUploader] Upload response status:", uploadResponse.status);
+      
       if (!uploadResponse.ok) {
-        const error = await uploadResponse.json();
-        throw new Error(error.message || 'File upload failed');
+        let errorMessage = 'File upload failed';
+        try {
+          const error = await uploadResponse.json();
+          errorMessage = error.message || errorMessage;
+          if (error.code === 'AUTH_ERROR') {
+            errorMessage = 'Please log in again to continue';
+          } else if (error.code === 'SUBSCRIPTION_REQUIRED') {
+            errorMessage = 'Active subscription required';
+          }
+        } catch (e) {
+          errorMessage = `Upload failed with status ${uploadResponse.status}`;
+        }
+        throw new Error(errorMessage);
       }
       
-      const { fileUrl, fileName } = await uploadResponse.json();
+      const uploadData = await uploadResponse.json();
+      console.log("[CreditReportUploader] File uploaded:", uploadData);
+      const { fileUrl, fileName } = uploadData;
       
       // Step 2: Create credit report analysis with the uploaded file
-      return apiRequest("POST", "/api/credit-reports/upload", {
+      console.log("[CreditReportUploader] Starting analysis...");
+      const analysisResponse = await apiRequest("POST", "/api/credit-reports/upload", {
         fileName,
         fileUrl,
         bureau,
       });
+      
+      console.log("[CreditReportUploader] Analysis response:", analysisResponse);
+      return analysisResponse;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log("[CreditReportUploader] Success! Data:", data);
       toast({
         title: "Success!",
         description: "Credit report uploaded and analysis started.",
@@ -46,10 +68,11 @@ export default function CreditReportUploader() {
       queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
       queryClient.invalidateQueries({ queryKey: ["/api/violations"] });
     },
-    onError: (error) => {
+    onError: (error: Error) => {
+      console.error("[CreditReportUploader] Error:", error);
       toast({
         title: "Upload Failed",
-        description: error.message,
+        description: error.message || "An unknown error occurred",
         variant: "destructive",
       });
     },

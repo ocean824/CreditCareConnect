@@ -19,24 +19,27 @@ declare module "express-session" {
 export function getUserSession() {
   const isProduction = process.env.NODE_ENV === "production";
   
+  // Log session configuration for debugging
+  console.log(`📝 Session config: NODE_ENV=${process.env.NODE_ENV}, isProduction=${isProduction}`);
+  
   return session({
     name: "connect.sid",
     store: new PgSession({
       pool,
       tableName: "sessions",
-      createTableIfMissing: false,
+      createTableIfMissing: true, // Auto-create table if missing
     }),
     secret: process.env.SESSION_SECRET || "user-secret-change-in-production",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: isProduction,
+      secure: isProduction, // Requires HTTPS in production
       httpOnly: true,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      sameSite: isProduction ? "none" : "lax", // 'none' allows cross-site requests with secure cookies
       path: "/",
     },
-    proxy: isProduction, // Trust proxy in production for proper HTTPS detection
+    proxy: true, // Always trust proxy for proper HTTPS detection behind load balancers
   });
 }
 
