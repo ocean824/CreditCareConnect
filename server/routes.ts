@@ -233,8 +233,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     requireActiveSubscription,
     creditReportUpload.single('file'),
     async (req: any, res) => {
+      console.log(`📤 [upload-file] Handler reached, file: ${req.file?.originalname || 'NONE'}`);
       try {
         if (!req.file) {
+          console.log(`📤 [upload-file] No file in request`);
           return res.status(400).json({ message: "No file uploaded" });
         }
 
@@ -261,9 +263,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     rateLimit({ windowMs: 60_000, max: 10, namespace: 'credit-upload' }),
     requireActiveSubscription, 
     async (req: any, res) => {
+    console.log(`📊 [credit-reports/upload] Handler reached`);
+    console.log(`   Body: ${JSON.stringify(req.body)}`);
     try {
       const userId = req.session.userId;
       const { fileName, fileUrl, bureau } = req.body;
+      console.log(`   userId: ${userId}, fileName: ${fileName}, bureau: ${bureau}`);
 
       // Validate request
       const validatedData = insertCreditReportSchema.parse({

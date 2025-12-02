@@ -236,8 +236,12 @@ export function requireAuth(req: any, res: any, next: any) {
 }
 
 export async function requireActiveSubscription(req: any, res: any, next: any) {
+  console.log(`🔐 [requireActiveSubscription] Request to ${req.method} ${req.path}`);
+  console.log(`   Session userId: ${req.session?.userId || 'NONE'}`);
+  
   // Validate that the user is logged in
   if (!req.session?.userId) {
+    console.log(`   ❌ Not authenticated - no session userId`);
     return res.status(401).json({
       code: "AUTH_ERROR",
       message: "Not authenticated",
@@ -270,7 +274,9 @@ export async function requireActiveSubscription(req: any, res: any, next: any) {
     requestEmail === "jarred@anunlimitedllc.com";
 
   // If the user is an admin or their email is whitelisted, bypass subscription checks entirely
+  console.log(`   User role: ${user.role}, isWhitelisted: ${isWhitelistedAdminEmail}`);
   if (user.role === "admin" || isWhitelistedAdminEmail) {
+    console.log(`   ✅ Admin/whitelisted user - bypassing subscription check`);
     // Ensure their plan and subscriptionStatus fields reflect full enterprise access
     if (user.plan !== "ENTERPRISE" || user.subscriptionStatus !== "active") {
       try {
@@ -282,9 +288,9 @@ export async function requireActiveSubscription(req: any, res: any, next: any) {
             updatedAt: new Date(),
           })
           .where(eq(users.id, user.id));
-        console.log(`✅ Auto-upgraded admin user ${user.email} to ENTERPRISE plan`);
+        console.log(`   ✅ Auto-upgraded admin user ${user.email} to ENTERPRISE plan`);
       } catch (err) {
-        console.error("Failed to enforce admin ENTERPRISE plan:", err);
+        console.error("   Failed to enforce admin ENTERPRISE plan:", err);
         // Even if updating fails, still allow the request through
       }
     }
@@ -294,8 +300,9 @@ export async function requireActiveSubscription(req: any, res: any, next: any) {
     return next();
   }
 
-  // For non-admin users, require an active subscription
-  if (user.subscriptionStatus !== "active") {
+  // For non-admin users, require an active subscription (case-insensitive check)
+  const status = (user.subscriptionStatus || "").toLowerCase();
+  if (status !== "active") {
     console.warn("Blocking request due to inactive subscription:", {
       userId: user.id,
       email: user.email,
