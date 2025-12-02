@@ -50,14 +50,35 @@ export default function CreditReportUploader() {
       
       // Step 2: Create credit report analysis with the uploaded file
       console.log("[CreditReportUploader] Starting analysis...");
-      const analysisResponse = await apiRequest("POST", "/api/credit-reports/upload", {
-        fileName,
-        fileUrl,
-        bureau,
+      const analysisResponse = await fetch('/api/credit-reports/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName, fileUrl, bureau }),
+        credentials: 'include',
       });
       
-      console.log("[CreditReportUploader] Analysis response:", analysisResponse);
-      return analysisResponse;
+      console.log("[CreditReportUploader] Analysis response status:", analysisResponse.status);
+      
+      if (!analysisResponse.ok) {
+        let errorMessage = 'Credit report analysis failed';
+        try {
+          const error = await analysisResponse.json();
+          errorMessage = error.message || errorMessage;
+          if (error.code === 'AUTH_ERROR') {
+            errorMessage = 'Session expired. Please log in again.';
+          } else if (error.code === 'ANALYSIS_FAILED') {
+            errorMessage = error.message || 'Analysis failed. Please try again.';
+          }
+        } catch (e) {
+          errorMessage = `Analysis failed with status ${analysisResponse.status}`;
+        }
+        console.error("[CreditReportUploader] Analysis error:", errorMessage);
+        throw new Error(errorMessage);
+      }
+      
+      const result = await analysisResponse.json();
+      console.log("[CreditReportUploader] Analysis complete:", result);
+      return result;
     },
     onSuccess: (data) => {
       console.log("[CreditReportUploader] Success! Data:", data);

@@ -548,18 +548,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`   📊 ${analysisResult.issues.length} issues detected`);
         console.log(`   🤖 ${analysisResult.aiExplanations.length} AI explanations generated`);
         console.log(`   💾 Saved to analysis run ${analysisRun.id}`);
-      } catch (error) {
-        console.error("❌ Error in advanced analysis:", error);
+      } catch (analysisError: any) {
+        console.error("❌ Error in advanced analysis:", analysisError);
         if (analysisRun) {
           await storage.updateAnalysisRunStatus(analysisRun.id, "failed");
         }
         await storage.updateCreditReportAnalysis(creditReport.id, null, "FAILED");
+        
+        // Return error response instead of swallowing the error!
+        return res.status(500).json({ 
+          message: `Credit report analysis failed: ${analysisError.message}`,
+          code: "ANALYSIS_FAILED",
+          creditReportId: creditReport.id 
+        });
       }
 
+      // Only send success response if analysis actually completed
+      console.log(`✅ Credit report upload and analysis completed successfully for report ${creditReport.id}`);
       res.json(creditReport);
-    } catch (error) {
-      console.error("Error uploading credit report:", error);
-      res.status(500).json({ message: "Failed to upload credit report" });
+    } catch (error: any) {
+      console.error("❌ Error uploading credit report:", error);
+      console.error("   Stack:", error.stack);
+      res.status(500).json({ 
+        message: error.message || "Failed to upload credit report",
+        code: "UPLOAD_FAILED" 
+      });
     }
   });
 
