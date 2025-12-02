@@ -289,52 +289,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Download and parse the uploaded credit report
         console.log(`📄 Analyzing credit report: ${fileName}`);
+        
+        // Determine the file path from fileUrl ONLY (don't trust client-provided fileName)
+        const filesDir = process.env.FILES_DIR || "./files";
+        
+        let filePath;
+        let isLocalFile = false;
+        
+        // Check if fileUrl is a relative path (local file) or absolute URL (remote/local file)
+        // Only treat it as local if it's a relative path starting with /files/
+        if (fileUrl.startsWith('/files/')) {
+          isLocalFile = true;
+          // Extract the filename from the relative URL
+          const localFileName = path.basename(fileUrl);
           
-          // Determine the file path from fileUrl ONLY (don't trust client-provided fileName)
-          const filesDir = process.env.FILES_DIR || "./files";
-          
-          let filePath;
-          let isLocalFile = false;
-          
-          // Check if fileUrl is a relative path (local file) or absolute URL (remote/local file)
-          // Only treat it as local if it's a relative path starting with /files/
-          if (fileUrl.startsWith('/files/')) {
-            isLocalFile = true;
-            // Extract the filename from the relative URL
-            const localFileName = path.basename(fileUrl);
-            
-            // SECURITY: Sanitize fileName to prevent path traversal attacks
-            const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-            if (!sanitizedFileName || sanitizedFileName === '.' || sanitizedFileName === '..') {
-              throw new Error('Invalid file name');
-            }
-            
-            filePath = path.join(filesDir, sanitizedFileName);
-            console.log(`📁 Using local file: ${filePath}`);
-          } else {
-            // URL (could be remote or localhost) - prepare to download it
-            // Extract extension from pathname (not full URL) to avoid query params
-            let fileExt = '.pdf'; // Default to PDF
-            try {
-              const parsedUrl = new URL(fileUrl);
-              const pathname = parsedUrl.pathname;
-              const extFromPath = path.extname(pathname).toLowerCase();
-              // Only use if it's a valid extension
-              if (['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(extFromPath)) {
-                fileExt = extFromPath;
-              }
-            } catch (e) {
-              // If URL parsing fails, fallback to PDF
-              console.warn('Failed to parse fileUrl for extension, using .pdf');
-            }
-            
-            const downloadFileName = `${crypto.randomUUID()}${fileExt}`;
-            filePath = path.join(filesDir, downloadFileName);
+          // SECURITY: Sanitize fileName to prevent path traversal attacks
+          const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+          if (!sanitizedFileName || sanitizedFileName === '.' || sanitizedFileName === '..') {
+            throw new Error('Invalid file name');
           }
           
-          // Check if file exists locally, if not and it's a remote URL, download it
-          if (!fs.existsSync(filePath) && !isLocalFile) {
-            console.log(`📥 Downloading file from ${fileUrl}...`);
+          filePath = path.join(filesDir, sanitizedFileName);
+          console.log(`📁 Using local file: ${filePath}`);
+        } else {
+          // URL (could be remote or localhost) - prepare to download it
+          // Extract extension from pathname (not full URL) to avoid query params
+          let fileExt = '.pdf'; // Default to PDF
+          try {
+            const parsedUrl = new URL(fileUrl);
+            const pathname = parsedUrl.pathname;
+            const extFromPath = path.extname(pathname).toLowerCase();
+            // Only use if it's a valid extension
+            if (['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(extFromPath)) {
+              fileExt = extFromPath;
+            }
+          } catch (e) {
+            // If URL parsing fails, fallback to PDF
+            console.warn('Failed to parse fileUrl for extension, using .pdf');
+          }
+          
+          const downloadFileName = `${crypto.randomUUID()}${fileExt}`;
+          filePath = path.join(filesDir, downloadFileName);
+        }
+        
+        // Check if file exists locally, if not and it's a remote URL, download it
+        if (!fs.existsSync(filePath) && !isLocalFile) {
+          console.log(`📥 Downloading file from ${fileUrl}...`);
             
             // SECURITY: Validate fileUrl to prevent SSRF attacks
             let parsedUrl;
