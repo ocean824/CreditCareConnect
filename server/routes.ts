@@ -335,121 +335,121 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Check if file exists locally, if not and it's a remote URL, download it
         if (!fs.existsSync(filePath) && !isLocalFile) {
           console.log(`📥 Downloading file from ${fileUrl}...`);
-            
-            // SECURITY: Validate fileUrl to prevent SSRF attacks
-            let parsedUrl;
-            try {
-              parsedUrl = new URL(fileUrl);
-            } catch (e) {
-              throw new Error('Invalid file URL');
-            }
-            
-            // Only allow HTTPS and block private IPs
-            if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
-              throw new Error('Only HTTP/HTTPS URLs are allowed');
-            }
-            
-            // Block private IP ranges and localhost
-            const hostname = parsedUrl.hostname.toLowerCase();
-            if (
-              hostname === 'localhost' ||
-              hostname === '127.0.0.1' ||
-              hostname.startsWith('192.168.') ||
-              hostname.startsWith('10.') ||
-              hostname.startsWith('172.16.') ||
-              hostname.startsWith('172.17.') ||
-              hostname.startsWith('172.18.') ||
-              hostname.startsWith('172.19.') ||
-              hostname.startsWith('172.20.') ||
-              hostname.startsWith('172.21.') ||
-              hostname.startsWith('172.22.') ||
-              hostname.startsWith('172.23.') ||
-              hostname.startsWith('172.24.') ||
-              hostname.startsWith('172.25.') ||
-              hostname.startsWith('172.26.') ||
-              hostname.startsWith('172.27.') ||
-              hostname.startsWith('172.28.') ||
-              hostname.startsWith('172.29.') ||
-              hostname.startsWith('172.30.') ||
-              hostname.startsWith('172.31.') ||
-              hostname.startsWith('169.254.') ||
-              hostname === '[::1]'
-            ) {
-              throw new Error('Access to private networks is not allowed');
-            }
-            
-            try {
-              // Ensure the files directory exists
-              if (!fs.existsSync(filesDir)) {
-                fs.mkdirSync(filesDir, { recursive: true });
-              }
-              
-              // Download the file with timeout
-              const controller = new AbortController();
-              const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-              
-              const response = await fetch(fileUrl, { 
-                signal: controller.signal,
-                redirect: 'follow',
-                headers: {
-                  'User-Agent': 'PersonalCreditPros/1.0'
-                }
-              });
-              clearTimeout(timeout);
-              
-              if (!response.ok) {
-                throw new Error(`Failed to download file: ${response.statusText}`);
-              }
-              
-              // Limit file size to 50MB
-              const contentLength = response.headers.get('content-length');
-              if (contentLength && parseInt(contentLength) > 50 * 1024 * 1024) {
-                throw new Error('File size exceeds 50MB limit');
-              }
-              
-              const buffer = await response.arrayBuffer();
-              
-              // Write the file to disk
-              fs.writeFileSync(filePath, Buffer.from(buffer), { mode: 0o600 }); // Restrict permissions
-              console.log(`✅ Downloaded file to ${filePath}`);
-            } catch (downloadError: any) {
-              console.error(`❌ Download failed:`, downloadError.message);
-              throw new Error(`Failed to download credit report: ${downloadError.message}`);
-            }
+          
+          // SECURITY: Validate fileUrl to prevent SSRF attacks
+          let parsedUrl;
+          try {
+            parsedUrl = new URL(fileUrl);
+          } catch (e) {
+            throw new Error('Invalid file URL');
           }
           
-          // Extract text from PDF using OCR
-          let reportText = "";
-          try {
-            console.log(`🔍 Extracting text from ${filePath}...`);
-            reportText = await ocrPdfOrImage(filePath);
-            console.log(`✅ Extracted ${reportText.length} characters from credit report`);
-          } catch (ocrError: any) {
-            console.error(`❌ OCR failed:`, ocrError.message);
-            throw new Error(`Failed to extract text from credit report: ${ocrError.message}`);
+          // Only allow HTTPS and block private IPs
+          if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+            throw new Error('Only HTTP/HTTPS URLs are allowed');
           }
           
-          // Parse the text into a structured CreditReport object using AI (tri-merge capable)
-          let parsedReport;
+          // Block private IP ranges and localhost
+          const hostname = parsedUrl.hostname.toLowerCase();
+          if (
+            hostname === 'localhost' ||
+            hostname === '127.0.0.1' ||
+            hostname.startsWith('192.168.') ||
+            hostname.startsWith('10.') ||
+            hostname.startsWith('172.16.') ||
+            hostname.startsWith('172.17.') ||
+            hostname.startsWith('172.18.') ||
+            hostname.startsWith('172.19.') ||
+            hostname.startsWith('172.20.') ||
+            hostname.startsWith('172.21.') ||
+            hostname.startsWith('172.22.') ||
+            hostname.startsWith('172.23.') ||
+            hostname.startsWith('172.24.') ||
+            hostname.startsWith('172.25.') ||
+            hostname.startsWith('172.26.') ||
+            hostname.startsWith('172.27.') ||
+            hostname.startsWith('172.28.') ||
+            hostname.startsWith('172.29.') ||
+            hostname.startsWith('172.30.') ||
+            hostname.startsWith('172.31.') ||
+            hostname.startsWith('169.254.') ||
+            hostname === '[::1]'
+          ) {
+            throw new Error('Access to private networks is not allowed');
+          }
+          
           try {
-            console.log(`🤖 Parsing credit report with AI (tri-merge enabled)...`);
-            const { parseCreditReportWithAiOnly } = await import('./services/creditReportParserV2');
-            const triMergeReport = await parseCreditReportWithAiOnly({
-              rawText: reportText,
-              bureauHint: (bureau || 'TRI') as any,
-              provider: 'IDENTITYIQ',
-              userId: userId,
+            // Ensure the files directory exists
+            if (!fs.existsSync(filesDir)) {
+              fs.mkdirSync(filesDir, { recursive: true });
+            }
+            
+            // Download the file with timeout
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+            
+            const response = await fetch(fileUrl, { 
+              signal: controller.signal,
+              redirect: 'follow',
+              headers: {
+                'User-Agent': 'PersonalCreditPros/1.0'
+              }
             });
+            clearTimeout(timeout);
             
-            // Convert tri-merge format to legacy format for compatibility
-            const { convertTriMergeToLegacy } = await import('./services/convertTriMergeToLegacy');
-            parsedReport = convertTriMergeToLegacy(triMergeReport);
+            if (!response.ok) {
+              throw new Error(`Failed to download file: ${response.statusText}`);
+            }
             
-            // Log parsing results
-            const bureauCount = parsedReport.bureaus.length;
-            const tradelineCount = parsedReport.bureaus.reduce((sum, b) => sum + b.tradelines.length, 0);
-            const collectionCount = parsedReport.bureaus.reduce((sum, b) => sum + b.collections.length, 0);
-            console.log(`✅ Successfully parsed credit report:`);
+            // Limit file size to 50MB
+            const contentLength = response.headers.get('content-length');
+            if (contentLength && parseInt(contentLength) > 50 * 1024 * 1024) {
+              throw new Error('File size exceeds 50MB limit');
+            }
+            
+            const buffer = await response.arrayBuffer();
+            
+            // Write the file to disk
+            fs.writeFileSync(filePath, Buffer.from(buffer), { mode: 0o600 }); // Restrict permissions
+            console.log(`✅ Downloaded file to ${filePath}`);
+          } catch (downloadError: any) {
+            console.error(`❌ Download failed:`, downloadError.message);
+            throw new Error(`Failed to download credit report: ${downloadError.message}`);
+          }
+        }
+        
+        // Extract text from PDF using OCR
+        let reportText = "";
+        try {
+          console.log(`🔍 Extracting text from ${filePath}...`);
+          reportText = await ocrPdfOrImage(filePath);
+          console.log(`✅ Extracted ${reportText.length} characters from credit report`);
+        } catch (ocrError: any) {
+          console.error(`❌ OCR failed:`, ocrError.message);
+          throw new Error(`Failed to extract text from credit report: ${ocrError.message}`);
+        }
+        
+        // Parse the text into a structured CreditReport object using AI (tri-merge capable)
+        let parsedReport;
+        try {
+          console.log(`🤖 Parsing credit report with AI (tri-merge enabled)...`);
+          const { parseCreditReportWithAiOnly } = await import('./services/creditReportParserV2');
+          const triMergeReport = await parseCreditReportWithAiOnly({
+            rawText: reportText,
+            bureauHint: (bureau || 'TRI') as any,
+            provider: 'IDENTITYIQ',
+            userId: userId,
+          });
+          
+          // Convert tri-merge format to legacy format for compatibility
+          const { convertTriMergeToLegacy } = await import('./services/convertTriMergeToLegacy');
+          parsedReport = convertTriMergeToLegacy(triMergeReport);
+          
+          // Log parsing results
+          const bureauCount = parsedReport.bureaus.length;
+          const tradelineCount = parsedReport.bureaus.reduce((sum, b) => sum + b.tradelines.length, 0);
+          const collectionCount = parsedReport.bureaus.reduce((sum, b) => sum + b.collections.length, 0);
+          console.log(`✅ Successfully parsed credit report:`);
             console.log(`   📊 Bureaus: ${bureauCount}, Tradelines: ${tradelineCount}, Collections: ${collectionCount}`);
           } catch (parseError: any) {
             console.error(`❌ Parsing failed:`, parseError.message);
