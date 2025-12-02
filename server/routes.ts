@@ -451,93 +451,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const collectionCount = parsedReport.bureaus.reduce((sum, b) => sum + b.collections.length, 0);
           console.log(`✅ Successfully parsed credit report:`);
             console.log(`   📊 Bureaus: ${bureauCount}, Tradelines: ${tradelineCount}, Collections: ${collectionCount}`);
-          } catch (parseError: any) {
-            console.error(`❌ Parsing failed:`, parseError.message);
-            throw new Error(`Failed to parse credit report: ${parseError.message}`);
-          }
-          
-          // Run advanced analysis (rules engine + AI explanations)
-          console.log(`🔬 Running rules engine analysis...`);
-          const analysisResult = await analyzeWithRulesEngine(parsedReport);
-          console.log(`✅ Rules engine analysis complete: ${analysisResult.issues.length} issues detected`);
-          
-          // Save issues to database
-          for (const issue of analysisResult.issues) {
-            await storage.createIssue({
-              runId: analysisRun.id,
-              issueId: issue.id,
-              ruleId: issue.ruleId,
-              family: issue.family,
-              category: issue.category,
-              severity: issue.severity,
-              affectedEntityType: issue.affectedEntityType,
-              affectedBureaus: issue.affectedBureaus,
-              affectedIds: issue.affectedIds,
-              statutes: issue.statutes,
-              descriptionMachine: issue.descriptionMachine,
-              explanationKey: issue.explanationKey,
-              details: issue.details as any,
-            });
-          }
-          
-          // Save AI explanations to database
-          for (const explanation of analysisResult.aiExplanations) {
-            await storage.createAiIssueExplanation({
-              runId: analysisRun.id,
-              issueId: explanation.issueId,
-              accountLabel: explanation.accountLabel,
-              humanSummary: explanation.humanSummary,
-              statutes: explanation.statutes,
-              disputeAngle: explanation.disputeAngle,
-              recommendedAction: explanation.recommendedAction,
-              priority: explanation.priority,
-              rawAiPayload: explanation,
-            });
-          }
-          
-          // Update analysis run status
-          await storage.updateAnalysisRunStatus(
-            analysisRun.id,
-            "completed",
-            new Date(),
-            analysisResult.issues.length,
-            analysisResult.aiExplanations.length
-          );
+        } catch (parseError: any) {
+          console.error(`❌ Parsing failed:`, parseError.message);
+          throw new Error(`Failed to parse credit report: ${parseError.message}`);
+        }
+        
+        // Run advanced analysis (rules engine + AI explanations)
+        console.log(`🔬 Running rules engine analysis...`);
+        const analysisResult = await analyzeWithRulesEngine(parsedReport);
+        console.log(`✅ Rules engine analysis complete: ${analysisResult.issues.length} issues detected`);
+        
+        // Save issues to database
+        for (const issue of analysisResult.issues) {
+          await storage.createIssue({
+            runId: analysisRun.id,
+            issueId: issue.id,
+            ruleId: issue.ruleId,
+            family: issue.family,
+            category: issue.category,
+            severity: issue.severity,
+            affectedEntityType: issue.affectedEntityType,
+            affectedBureaus: issue.affectedBureaus,
+            affectedIds: issue.affectedIds,
+            statutes: issue.statutes,
+            descriptionMachine: issue.descriptionMachine,
+            explanationKey: issue.explanationKey,
+            details: issue.details as any,
+          });
+        }
+        
+        // Save AI explanations to database
+        for (const explanation of analysisResult.aiExplanations) {
+          await storage.createAiIssueExplanation({
+            runId: analysisRun.id,
+            issueId: explanation.issueId,
+            accountLabel: explanation.accountLabel,
+            humanSummary: explanation.humanSummary,
+            statutes: explanation.statutes,
+            disputeAngle: explanation.disputeAngle,
+            recommendedAction: explanation.recommendedAction,
+            priority: explanation.priority,
+            rawAiPayload: explanation,
+          });
+        }
+        
+        // Update analysis run status
+        await storage.updateAnalysisRunStatus(
+          analysisRun.id,
+          "completed",
+          new Date(),
+          analysisResult.issues.length,
+          analysisResult.aiExplanations.length
+        );
 
-          // Update credit report with analysis results (for backwards compatibility)
-          const legacyAnalysis = {
-            violations: analysisResult.issues.slice(0, 10).map(issue => ({
-              accountName: (issue.details as any).accountName || "Account",
-              accountNumber: issue.affectedIds[0] || "N/A",
-              bureau: issue.affectedBureaus?.[0] || bureau || "EQUIFAX",
-              violationType: issue.category,
-              description: issue.descriptionMachine,
-              statute: issue.statutes.join(", "),
-              severity: issue.severity,
-            })),
-            summary: analysisResult.summary,
-          };
-          
-          await storage.updateCreditReportAnalysis(
-            creditReport.id, 
-            legacyAnalysis, 
-            "COMPLETED"
-          );
+        // Update credit report with analysis results (for backwards compatibility)
+        const legacyAnalysis = {
+          violations: analysisResult.issues.slice(0, 10).map(issue => ({
+            accountName: (issue.details as any).accountName || "Account",
+            accountNumber: issue.affectedIds[0] || "N/A",
+            bureau: issue.affectedBureaus?.[0] || bureau || "EQUIFAX",
+            violationType: issue.category,
+            description: issue.descriptionMachine,
+            statute: issue.statutes.join(", "),
+            severity: issue.severity,
+          })),
+          summary: analysisResult.summary,
+        };
+        
+        await storage.updateCreditReportAnalysis(
+          creditReport.id, 
+          legacyAnalysis, 
+          "COMPLETED"
+        );
 
-          // Create legacy violation records (for backwards compatibility)
-          for (const violation of legacyAnalysis.violations) {
-            await storage.createViolation({
-              creditReportId: creditReport.id,
-              accountName: violation.accountName,
-              accountNumber: violation.accountNumber,
-              bureau: violation.bureau,
-              violationType: violation.violationType,
-              description: violation.description,
-              statute: violation.statute,
-              severity: violation.severity,
-              status: "IDENTIFIED"
-            });
-          }
+        // Create legacy violation records (for backwards compatibility)
+        for (const violation of legacyAnalysis.violations) {
+          await storage.createViolation({
+            creditReportId: creditReport.id,
+            accountName: violation.accountName,
+            accountNumber: violation.accountNumber,
+            bureau: violation.bureau,
+            violationType: violation.violationType,
+            description: violation.description,
+            statute: violation.statute,
+            severity: violation.severity,
+            status: "IDENTIFIED"
+          });
+        }
           
         console.log(`✅ Advanced analysis completed for report ${creditReport.id}:`);
         console.log(`   📊 ${analysisResult.issues.length} issues detected`);
