@@ -24,8 +24,15 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
           status: mapAccountStatus(snapshot?.status || tl.status),
           balance: snapshot?.balance ?? tl.balance,
           pastDueAmount: snapshot?.pastDue ?? tl.pastDue,
+          lastPaymentDate: tl.lastPaymentDate,
+          lastUpdatedDate: snapshot?.lastUpdatedDate,
+          dateOfFirstDelinquency: tl.dateOfFirstDelinquency,
+          openedDate: tl.openedDate,
+          closedDate: tl.closedDate,
+          creditLimit: tl.creditLimit,
+          highCreditLimit: tl.highCreditLimit,
           isOriginalCreditor: true
-        };
+        } as LegacyTradeline;
       });
 
     const collections = report.collections
@@ -36,9 +43,13 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
           internalId: col.id,
           collectorName: col.collectorName,
           originalCreditorName: col.originalCreditorName,
+          accountNumberMasked: col.accountNumberLast4 ? `****${col.accountNumberLast4}` : undefined,
           status: mapCollectionStatus(snapshot?.status),
-          balance: snapshot?.balance ?? col.balance
-        };
+          balance: snapshot?.balance ?? col.balance,
+          dateOfFirstDelinquency: col.dateOfFirstDelinquency,
+          openedDate: col.openedDate,
+          lastUpdatedDate: col.lastUpdatedDate
+        } as any;
       });
 
     bureauReports.push({

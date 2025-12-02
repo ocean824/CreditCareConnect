@@ -52,17 +52,27 @@ export interface Tradeline {
   bureaus: Exclude<BureauCode, 'TRI'>[];
   bureauSnapshots: BureauSnapshot[];
   remarks?: string[];
+  dateOfFirstDelinquency?: string;
+  lastPaymentDate?: string;
+  openedDate?: string;
+  closedDate?: string;
+  highCreditLimit?: number;
+  creditLimit?: number;
 }
 
 export interface CollectionAccount {
   id: string;
   collectorName: string;
   originalCreditorName?: string;
+  accountNumberLast4?: string;
   status: CollectionStatus;
   balance: number | null;
   bureaus: Exclude<BureauCode, 'TRI'>[];
   bureauSnapshots: BureauSnapshot[];
   remarks?: string[];
+  dateOfFirstDelinquency?: string;
+  openedDate?: string;
+  lastUpdatedDate?: string;
 }
 
 export interface PublicRecord {
@@ -70,6 +80,10 @@ export interface PublicRecord {
   type: string;
   courtName?: string;
   amount?: number | null;
+  filedDate?: string;
+  resolvedDate?: string;
+  status?: string;
+  docketNumber?: string;
   bureaus: Exclude<BureauCode, 'TRI'>[];
 }
 
