@@ -236,32 +236,78 @@ export function requireAuth(req: any, res: any, next: any) {
 }
 
 export async function requireActiveSubscription(req: any, res: any, next: any) {
-  if (!req.session.userId) {
-    return res.status(401).json({ 
+  // Validate that the user is logged in
+  if (!req.session?.userId) {
+    return res.status(401).json({
       code: "AUTH_ERROR",
-      message: "Not authenticated" 
+      message: "Not authenticated",
     });
   }
 
+  // Always fetch the latest user record from the database rather than trusting the session
   const [user] = await db
     .select()
     .from(users)
     .where(eq(users.id, req.session.userId));
 
   if (!user) {
-    return res.status(401).json({ 
+    return res.status(401).json({
       code: "AUTH_ERROR",
-      message: "User not found" 
+      message: "User not found",
     });
   }
 
+  // Parse the admin email whitelist from the environment
+  const adminEmailWhitelistEnv = process.env.ADMIN_EMAILS || "";
+  const adminEmailWhitelist = adminEmailWhitelistEnv
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.length > 0);
+
+  const requestEmail = (user.email || "").toLowerCase();
+  const isWhitelistedAdminEmail =
+    adminEmailWhitelist.includes(requestEmail) ||
+    requestEmail === "jarred@anunlimitedllc.com";
+
+  // If the user is an admin or their email is whitelisted, bypass subscription checks entirely
+  if (user.role === "admin" || isWhitelistedAdminEmail) {
+    // Ensure their plan and subscriptionStatus fields reflect full enterprise access
+    if (user.plan !== "ENTERPRISE" || user.subscriptionStatus !== "active") {
+      try {
+        await db
+          .update(users)
+          .set({
+            plan: "ENTERPRISE",
+            subscriptionStatus: "active",
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id));
+        console.log(`✅ Auto-upgraded admin user ${user.email} to ENTERPRISE plan`);
+      } catch (err) {
+        console.error("Failed to enforce admin ENTERPRISE plan:", err);
+        // Even if updating fails, still allow the request through
+      }
+    }
+
+    // Mark the request for debugging/testing purposes (optional)
+    (req as any).isAdminBypass = true;
+    return next();
+  }
+
+  // For non-admin users, require an active subscription
   if (user.subscriptionStatus !== "active") {
-    return res.status(403).json({ 
+    console.warn("Blocking request due to inactive subscription:", {
+      userId: user.id,
+      email: user.email,
+      subscriptionStatus: user.subscriptionStatus,
+    });
+    return res.status(403).json({
       code: "SUBSCRIPTION_REQUIRED",
-      message: "Active subscription required" 
+      message: "Active subscription required",
     });
   }
 
+  // If checks pass, continue to the next middleware or route handler
   next();
 }
 
