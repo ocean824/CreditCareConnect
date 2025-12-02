@@ -942,16 +942,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const validatedData = generateSchema.parse(req.body);
         const { bureau, issueIds, round } = validatedData;
         
-        // Get issues from the database
-        const allIssues = await storage.getIssuesByUserId(userId);
-        const selectedIssues = allIssues.filter(issue => issueIds.includes(issue.id));
+        // Get all credit reports for this user
+        const creditReports = await storage.getCreditReportsByUserId(userId);
+        
+        // Get all issues and AI explanations from all analysis runs
+        const allIssues: any[] = [];
+        const allAiExplanations: any[] = [];
+        
+        for (const report of creditReports) {
+          const runs = await storage.getAnalysisRunsByReportId(report.id);
+          for (const run of runs) {
+            const issues = await storage.getIssuesByRunId(run.id);
+            const explanations = await storage.getAiIssueExplanationsByRunId(run.id);
+            allIssues.push(...issues);
+            allAiExplanations.push(...explanations);
+          }
+        }
+        
+        // Filter to selected issues
+        const selectedIssues = allIssues.filter((issue: any) => issueIds.includes(issue.id));
         
         if (selectedIssues.length === 0) {
           return res.status(400).json({ message: "No valid issues selected" });
         }
-        
-        // Get AI explanations
-        const aiExplanations = await storage.getAiExplanationsByUserId(userId);
         
         // Convert issues to violation summaries
         const violations = convertIssuesToViolationSummaries(selectedIssues as any);
@@ -962,15 +975,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           city: "Anytown",
           state: "FL",
           zip: "32801",
-          dob: user.dateOfBirth || undefined,
-          ssnLast4: user.ssnLast4 || undefined,
         };
         
         console.log(`🤖 Generating AI dispute letter for ${bureau}, round ${round}`);
         
         const letterContent = await draftAiDisputeLetter(
           violations,
-          aiExplanations as any,
+          allAiExplanations as any,
           consumerInfo,
           bureau.toUpperCase() as any,
           round as 1 | 2 | 3
