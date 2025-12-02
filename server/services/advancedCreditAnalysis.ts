@@ -21,8 +21,36 @@ export interface AnalysisResult {
 export async function analyzeWithRulesEngine(
   creditReport: CreditReport
 ): Promise<AnalysisResult> {
+  console.log('📊 [ANALYSIS] Starting rules engine analysis');
+  console.log(`📊 [DATA] Bureaus: ${creditReport.bureaus.length}`);
+  
+  // Log bureau details
+  for (const bureau of creditReport.bureaus) {
+    console.log(`  🏦 ${bureau.bureau}: ${bureau.tradelines.length} tradelines, ${bureau.collections.length} collections, ${bureau.publicRecords.length} public records`);
+    for (const tl of bureau.tradelines.slice(0, 2)) {
+      console.log(`    💳 Tradeline: ${tl.creditorName}, Status: ${tl.status}, Balance: ${tl.balance}, DOFD: ${tl.dateOfFirstDelinquency}`);
+    }
+    for (const col of bureau.collections.slice(0, 2)) {
+      console.log(`    🚨 Collection: ${col.collectorName}, Balance: ${col.balance}, DOFD: ${col.dateOfFirstDelinquency}`);
+    }
+  }
+
   // Step 1: Run rules engine to detect violations
+  console.log('🔬 [RULES] Running all rules...');
   const issues = runAllRules(creditReport);
+  console.log(`✅ [RULES] Rules engine complete: ${issues.length} violations detected`);
+  
+  if (issues.length > 0) {
+    console.log('📋 [VIOLATIONS] Issues found:');
+    issues.forEach(issue => {
+      console.log(`  - ${issue.ruleId} (${issue.category}): ${issue.descriptionMachine}`);
+    });
+  } else {
+    console.log('⚠️  [VIOLATIONS] No violations detected - checking if data is empty...');
+    const totalTradelines = creditReport.bureaus.reduce((sum, b) => sum + b.tradelines.length, 0);
+    const totalCollections = creditReport.bureaus.reduce((sum, b) => sum + b.collections.length, 0);
+    console.log(`  Total data points: ${totalTradelines} tradelines + ${totalCollections} collections`);
+  }
 
   // Step 2: Generate AI explanations for each issue
   const aiExplanations = await generateAiExplanations(issues, creditReport);

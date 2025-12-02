@@ -16,9 +16,11 @@ function ruleObsoleteDerogatory(report: CreditReport): IssueFlag[] {
 
   for (const b of report.bureaus) {
     for (const tl of b.tradelines) {
-      if (!tl.dateOfFirstDelinquency) continue;
-      const years = yearsBetween(tl.dateOfFirstDelinquency, today);
-      if (!years) continue;
+      // Try to use DOFD, fall back to opened date if available
+      const delinqDate = tl.dateOfFirstDelinquency || tl.openedDate;
+      if (!delinqDate) continue;
+      const years = yearsBetween(delinqDate, today);
+      if (years === undefined) continue;
       if (years > thresholds.obsoleteDerogYears + thresholds.obsoleteBufferDays / 365.25) {
         issues.push(
           createIssueFlag({
@@ -45,9 +47,11 @@ function ruleObsoleteDerogatory(report: CreditReport): IssueFlag[] {
     }
 
     for (const col of b.collections) {
-      if (!col.dateOfFirstDelinquency) continue;
-      const years = yearsBetween(col.dateOfFirstDelinquency, today);
-      if (!years) continue;
+      // Try to use DOFD, fall back to opened date if available
+      const delinqDate = col.dateOfFirstDelinquency || col.openedDate;
+      if (!delinqDate) continue;
+      const years = yearsBetween(delinqDate, today);
+      if (years === undefined) continue;
       if (years > thresholds.obsoleteDerogYears + thresholds.obsoleteBufferDays / 365.25) {
         issues.push(
           createIssueFlag({

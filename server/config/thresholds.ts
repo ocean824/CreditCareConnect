@@ -1,9 +1,9 @@
 export const thresholds = {
-  crossBureauBalanceTolerancePct: 0.1,
-  crossBureauBalanceToleranceAbs: 10000,
-  crossBureauBalanceToleranceSeverePct: 0.5,
-  crossBureauBalanceToleranceSevereAbs: 100000,
+  crossBureauBalanceTolerancePct: 0.01,
+  crossBureauBalanceToleranceAbs: 100,
+  crossBureauBalanceToleranceSeverePct: 0.2,
+  crossBureauBalanceToleranceSevereAbs: 5000,
   obsoleteDerogYears: 7,
   obsoleteBankruptcyYears: 10,
-  obsoleteBufferDays: 180,
+  obsoleteBufferDays: 0,
 };
