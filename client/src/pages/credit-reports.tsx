@@ -1,32 +1,12 @@
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, FileText, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { FileText, Loader2 } from "lucide-react";
 import { useCreditReports } from "@/hooks/useCreditReports";
-import { useUploadReport } from "@/hooks/useUploadReport";
 import { useLocation } from "wouter";
+import CreditReportUploader from "@/components/CreditReportUploader";
 
 export default function CreditReportsPage() {
   const [, navigate] = useLocation();
   const { data: reports, isLoading: reportsLoading } = useCreditReports();
-  const { mutate: uploadReport, isPending } = useUploadReport();
-  const [dragActive, setDragActive] = useState(false);
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(e.type === "dragenter" || e.type === "dragover");
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      uploadReport(e.dataTransfer.files[0]);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-8">
@@ -37,30 +17,13 @@ export default function CreditReportsPage() {
         </div>
 
         {/* Upload Card */}
-        <Card className="mb-8 border-2 border-dashed dark:border-slate-700" onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}>
-          <CardContent className={`p-8 transition-colors ${dragActive ? "bg-blue-50 dark:bg-blue-950" : ""}`}>
-            <div className="flex flex-col items-center justify-center text-center">
-              <Upload className="w-12 h-12 mb-4 text-blue-500" />
-              <h3 className="text-lg font-semibold mb-2">Upload Credit Report</h3>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">Drag and drop your IdentityIQ or tri-merge PDF here, or</p>
-              <label>
-                <Button disabled={isPending} variant="outline">
-                  {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                  Select File
-                </Button>
-                <input
-                  type="file"
-                  accept=".pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files?.[0]) {
-                      uploadReport(e.target.files[0]);
-                    }
-                  }}
-                  disabled={isPending}
-                />
-              </label>
-            </div>
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Upload Credit Report</CardTitle>
+            <CardDescription>Upload a PDF tri-merge or IdentityIQ report for analysis</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CreditReportUploader />
           </CardContent>
         </Card>
 
