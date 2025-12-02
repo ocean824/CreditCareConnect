@@ -37,6 +37,9 @@ import adminAuthRouter, { getAdminSession } from "./adminAuth";
 import userAuthRouter, { requireAuth, requireActiveSubscription, getUserSession } from "./userAuth";
 import { analyzeWithRulesEngine } from "./services/advancedCreditAnalysis";
 import { parseCreditReportText } from "./services/creditReportParser";
+import { parseMetro2File, isMetro2File, convertMetro2ToCreditReport } from "./services/metro2Parser";
+import { extractReportText, detectReportFormat, isTextQualitySufficient, type ExtractionResult } from "./services/extraction";
+import { draftAiDisputeLetter, convertIssuesToViolationSummaries } from "./services/aiLetterDrafting";
 import { nanoid } from "nanoid";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -787,6 +790,210 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to reprocess credit report" });
     }
   });
+
+  // Helper function to safely resolve file paths within the uploads directory
+  const safeResolvePath = (fileUrl: string): { valid: boolean; filePath?: string; error?: string } => {
+    if (!fileUrl || typeof fileUrl !== 'string') {
+      return { valid: false, error: "File URL is required" };
+    }
+    
+    const filesDir = path.resolve(process.env.FILES_DIR || "./files");
+    
+    // Extract only the filename, stripping any path components
+    const fileName = path.basename(fileUrl);
+    
+    // Reject if filename contains suspicious patterns
+    if (fileName.includes('..') || fileName.includes('\0') || fileName.startsWith('.')) {
+      return { valid: false, error: "Invalid file name" };
+    }
+    
+    // Sanitize filename to only allow safe characters
+    const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    
+    // Build the full path and ensure it's within the allowed directory
+    const filePath = path.resolve(filesDir, sanitizedFileName);
+    
+    // Verify the resolved path is within the files directory
+    if (!filePath.startsWith(filesDir + path.sep) && filePath !== filesDir) {
+      return { valid: false, error: "Invalid file path" };
+    }
+    
+    return { valid: true, filePath };
+  };
+
+  // Metro 2 file parsing endpoint
+  app.post('/api/credit-reports/parse-metro2', 
+    rateLimit({ windowMs: 60_000, max: 5, namespace: 'metro2-parse' }),
+    requireActiveSubscription,
+    async (req: any, res) => {
+      try {
+        const { fileUrl, bureau } = req.body;
+        
+        const pathResult = safeResolvePath(fileUrl);
+        if (!pathResult.valid || !pathResult.filePath) {
+          return res.status(400).json({ message: pathResult.error || "Invalid file path" });
+        }
+        
+        const filePath = pathResult.filePath;
+        
+        if (!fs.existsSync(filePath)) {
+          return res.status(404).json({ message: "File not found" });
+        }
+        
+        if (!isMetro2File(filePath)) {
+          return res.status(400).json({ 
+            message: "File is not a Metro 2 format. Expected .m2, .metro2, or .dat extension" 
+          });
+        }
+        
+        console.log(`📊 Parsing Metro 2 file: ${filePath}`);
+        const parsedMetro2 = await parseMetro2File(filePath);
+        
+        console.log(`   Found ${parsedMetro2.baseSegments.length} base segments`);
+        
+        const creditReport = convertMetro2ToCreditReport(parsedMetro2, bureau || 'Other');
+        
+        console.log(`✅ Metro 2 parsing complete`);
+        
+        res.json({
+          success: true,
+          report: creditReport,
+          metadata: {
+            totalSegments: parsedMetro2.baseSegments.length,
+            reporterName: parsedMetro2.header.reporterName,
+            activityDate: parsedMetro2.header.activityDate,
+          }
+        });
+      } catch (error: any) {
+        console.error("Error parsing Metro 2 file:", error);
+        res.status(500).json({ 
+          message: error.message || "Failed to parse Metro 2 file",
+          code: "METRO2_PARSE_ERROR"
+        });
+      }
+    }
+  );
+
+  // Enhanced text extraction endpoint
+  app.post('/api/credit-reports/extract-text',
+    rateLimit({ windowMs: 60_000, max: 10, namespace: 'extract-text' }),
+    requireActiveSubscription,
+    async (req: any, res) => {
+      try {
+        const { fileUrl } = req.body;
+        
+        const pathResult = safeResolvePath(fileUrl);
+        if (!pathResult.valid || !pathResult.filePath) {
+          return res.status(400).json({ message: pathResult.error || "Invalid file path" });
+        }
+        
+        const filePath = pathResult.filePath;
+        
+        if (!fs.existsSync(filePath)) {
+          return res.status(404).json({ message: "File not found" });
+        }
+        
+        console.log(`📄 Extracting text from: ${filePath}`);
+        const extraction: ExtractionResult = await extractReportText(filePath);
+        
+        const format = detectReportFormat(extraction.text);
+        const qualitySufficient = isTextQualitySufficient(extraction);
+        
+        console.log(`✅ Extraction complete: method=${extraction.method}, confidence=${extraction.confidence.toFixed(2)}, format=${format}`);
+        
+        res.json({
+          success: true,
+          text: extraction.text,
+          method: extraction.method,
+          confidence: extraction.confidence,
+          pageCount: extraction.pageCount,
+          detectedFormat: format,
+          qualitySufficient,
+        });
+      } catch (error: any) {
+        console.error("Error extracting text:", error);
+        res.status(500).json({ 
+          message: error.message || "Failed to extract text from file",
+          code: "EXTRACTION_ERROR"
+        });
+      }
+    }
+  );
+
+  // AI-powered dispute letter generation endpoint
+  app.post('/api/dispute-letters/generate-ai',
+    rateLimit({ windowMs: 60_000, max: 5, namespace: 'ai-letter' }),
+    requireActiveSubscription,
+    async (req: any, res) => {
+      try {
+        const userId = req.session.userId;
+        const user = await storage.getUser(userId);
+        
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
+        
+        const generateSchema = z.object({
+          bureau: z.enum(['EQUIFAX', 'TRANSUNION', 'EXPERIAN', 'Equifax', 'TransUnion', 'Experian']),
+          issueIds: z.array(z.string()).min(1, "At least one issue must be selected"),
+          round: z.number().int().min(1).max(3).optional().default(1),
+        });
+        
+        const validatedData = generateSchema.parse(req.body);
+        const { bureau, issueIds, round } = validatedData;
+        
+        // Get issues from the database
+        const allIssues = await storage.getIssuesByUserId(userId);
+        const selectedIssues = allIssues.filter(issue => issueIds.includes(issue.id));
+        
+        if (selectedIssues.length === 0) {
+          return res.status(400).json({ message: "No valid issues selected" });
+        }
+        
+        // Get AI explanations
+        const aiExplanations = await storage.getAiExplanationsByUserId(userId);
+        
+        // Convert issues to violation summaries
+        const violations = convertIssuesToViolationSummaries(selectedIssues as any);
+        
+        const consumerInfo = {
+          name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Consumer',
+          address: "123 Main Street",
+          city: "Anytown",
+          state: "FL",
+          zip: "32801",
+          dob: user.dateOfBirth || undefined,
+          ssnLast4: user.ssnLast4 || undefined,
+        };
+        
+        console.log(`🤖 Generating AI dispute letter for ${bureau}, round ${round}`);
+        
+        const letterContent = await draftAiDisputeLetter(
+          violations,
+          aiExplanations as any,
+          consumerInfo,
+          bureau.toUpperCase() as any,
+          round as 1 | 2 | 3
+        );
+        
+        console.log(`✅ AI letter generation complete`);
+        
+        res.json({
+          success: true,
+          letterContent,
+          bureau: bureau.toUpperCase(),
+          round,
+          violationCount: violations.length,
+        });
+      } catch (error: any) {
+        console.error("Error generating AI dispute letter:", error);
+        res.status(500).json({ 
+          message: error.message || "Failed to generate dispute letter",
+          code: "AI_LETTER_ERROR"
+        });
+      }
+    }
+  );
 
   // Violations
   app.get('/api/violations', requireActiveSubscription, async (req: any, res) => {

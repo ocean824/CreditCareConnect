@@ -7,6 +7,7 @@ import { runTimelineRules } from './rules_timeline';
 import { runCollectionRules } from './rules_collections';
 import { runIdentityRules } from './rules_identity';
 import { runDisputeRules } from './rules_disputes';
+import { runEnhancedFCRARules } from './rules_fcra_enhanced';
 
 export function runAllRules(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
@@ -16,5 +17,6 @@ export function runAllRules(report: CreditReport): IssueFlag[] {
   issues.push(...runCollectionRules(report));
   issues.push(...runIdentityRules(report));
   issues.push(...runDisputeRules(report));
+  issues.push(...runEnhancedFCRARules(report));
   return issues;
 }

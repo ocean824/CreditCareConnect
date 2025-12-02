@@ -1,0 +1,25 @@
+Here's a development bundle containing new modules that extend your app to support Metro 2 files, add more FCRA compliance checks, draft legally grounded dispute letters with a generative‑AI layer, employ multiple extraction strategies, and include a UI component for manual review. The key updates are summarized below with supporting references:
+
+Metro 2 support: Adds a parser (metro2Parser.ts) that invokes the open‑source Moov Metro 2 CLI to read, validate and parse Metro 2 files. This format consists of a header, a base segment per account and optional segments; alphanumeric fields are left‑justified/blank‑filled and monetary values are in whole dollars
+moov-io.github.io
+. Moov’s library implements a reader, writer and validator for consumer credit history reports and does not persist any data
+moov-io.github.io
+.
+
+Expanded FCRA rules: Implements new rule functions in fcraRules.ts to flag violations like failing to note disputed debts, misreporting resolved debts, continuing to report expired data, misclassifying debts discharged by bankruptcy, and mixing files of different consumers
+steinsakslegal.com
+. Each violation includes the relevant FCRA section for use in dispute letters.
+
+Generative dispute letters: Provides letterDrafting.ts, which compiles detected violations into a prompt based on DocsBot’s AI template for credit repair disputes
+docsbot.ai
+ and calls the OpenAI API to draft professional, legally forceful letters citing applicable statutes.
+
+Multiple extraction strategies: Adds extraction.ts, a robust extractor that first tries pdf-parse for digital PDFs and falls back to OCR with Tesseract.js when necessary, addressing both scanned and digital reports.
+
+Manual review UI: Includes ReportReview.tsx, a React component that lists parsed entries, shows the rule‑detected violations, and lets the user include or exclude items before generating letters.
+
+Documentation: The README.md in the archive explains how to integrate these modules into your existing system, describes compliance considerations (e.g. agencies must investigate disputes within 30 days
+thekimlawfirmllc.com
+ and delete or correct inaccurate information within the 30‑day window
+law.cornell.edu
+), and cites the legal basis for the new rules.
