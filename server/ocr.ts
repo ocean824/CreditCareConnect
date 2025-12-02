@@ -8,10 +8,10 @@ export async function ocrPdfOrImage(absPath: string): Promise<string> {
   const ext = path.extname(absPath).toLowerCase();
   if (ext === ".pdf") {
     const convert = fromBuffer(fs.readFileSync(absPath), { density: 200, format: "png" });
-    const pages = await convert.bulk(-1);
+    const pages = await convert.bulk(-1, { responseType: 'base64' });
     let text = "";
     for (const p of pages) {
-      const res = await Tesseract.recognize(p.base64, "eng");
+      const res = await Tesseract.recognize(p.base64!, "eng");
       text += res.data.text + "\n";
     }
     return text.trim();
@@ -27,6 +27,6 @@ export async function ollamaGenerate(model: string, prompt: string): Promise<str
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model, prompt, stream: false })
   });
-  const j = await r.json();
+  const j = await r.json() as any;
   return j.response?.trim() || "";
 }
