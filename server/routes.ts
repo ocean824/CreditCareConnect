@@ -276,20 +276,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const creditReport = await storage.createCreditReport(validatedData);
 
-      // Start advanced analysis in background using rules engine + AI
-      setTimeout(async () => {
-        let analysisRun;
-        try {
-          // Create analysis run record
-          analysisRun = await storage.createAnalysisRun({
-            creditReportId: creditReport.id,
-            engineVersion: "1.0.0",
-            aiModel: process.env.OPENAI_MODEL || "gpt-5.1-chat-latest",
-            status: "running",
-          });
+      // Run advanced analysis synchronously before sending response
+      let analysisRun;
+      try {
+        // Create analysis run record
+        analysisRun = await storage.createAnalysisRun({
+          creditReportId: creditReport.id,
+          engineVersion: "1.0.0",
+          aiModel: process.env.OPENAI_MODEL || "gpt-5.1-chat-latest",
+          status: "running",
+        });
 
-          // Download and parse the uploaded credit report
-          console.log(`📄 Analyzing credit report: ${fileName}`);
+        // Download and parse the uploaded credit report
+        console.log(`📄 Analyzing credit report: ${fileName}`);
           
           // Determine the file path from fileUrl ONLY (don't trust client-provided fileName)
           const filesDir = process.env.FILES_DIR || "./files";
@@ -540,18 +539,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
           
-          console.log(`✅ Advanced analysis completed for report ${creditReport.id}:`);
-          console.log(`   📊 ${analysisResult.issues.length} issues detected`);
-          console.log(`   🤖 ${analysisResult.aiExplanations.length} AI explanations generated`);
-          console.log(`   💾 Saved to analysis run ${analysisRun.id}`);
-        } catch (error) {
-          console.error("❌ Error in advanced analysis:", error);
-          if (analysisRun) {
-            await storage.updateAnalysisRunStatus(analysisRun.id, "failed");
-          }
-          await storage.updateCreditReportAnalysis(creditReport.id, null, "FAILED");
+        console.log(`✅ Advanced analysis completed for report ${creditReport.id}:`);
+        console.log(`   📊 ${analysisResult.issues.length} issues detected`);
+        console.log(`   🤖 ${analysisResult.aiExplanations.length} AI explanations generated`);
+        console.log(`   💾 Saved to analysis run ${analysisRun.id}`);
+      } catch (error) {
+        console.error("❌ Error in advanced analysis:", error);
+        if (analysisRun) {
+          await storage.updateAnalysisRunStatus(analysisRun.id, "failed");
         }
-      }, 2000);
+        await storage.updateCreditReportAnalysis(creditReport.id, null, "FAILED");
+      }
 
       res.json(creditReport);
     } catch (error) {
