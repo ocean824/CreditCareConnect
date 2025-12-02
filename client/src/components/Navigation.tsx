@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle, UserCircle } from "lucide-react";
 import { Link } from "wouter";
 import type { User } from "@shared/schema";
+import { queryClient } from "@/lib/queryClient";
 
 interface NavigationProps {
   user?: User;
@@ -10,8 +11,22 @@ interface NavigationProps {
 }
 
 export default function Navigation({ user, activeTab, onTabChange }: NavigationProps) {
-  const handleLogout = () => {
-    window.location.href = "/api/logout";
+  const handleLogout = async () => {
+    try {
+      const response = await fetch("/api/user/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+      
+      if (response.ok) {
+        queryClient.clear();
+        window.location.href = "/";
+      } else {
+        console.error("Logout failed");
+      }
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   return (
