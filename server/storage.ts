@@ -57,6 +57,7 @@ export interface IStorage {
   getViolationsByReportId(creditReportId: string): Promise<Violation[]>;
   getViolationsByUserId(userId: string): Promise<Violation[]>;
   deleteViolationsByReportId(creditReportId: string): Promise<void>;
+  deleteAnalysisDataByReportId(creditReportId: string): Promise<void>;
   
   // Dispute Letters operations
   createDisputeLetter(letter: InsertDisputeLetter): Promise<DisputeLetter>;
@@ -259,6 +260,15 @@ export class DatabaseStorage implements IStorage {
 
   async deleteViolationsByReportId(creditReportId: string): Promise<void> {
     await db.delete(violations).where(eq(violations.creditReportId, creditReportId));
+  }
+
+  async deleteAnalysisDataByReportId(creditReportId: string): Promise<void> {
+    const runs = await db.select().from(analysisRuns).where(eq(analysisRuns.creditReportId, creditReportId));
+    for (const run of runs) {
+      await db.delete(issues).where(eq(issues.runId, run.id));
+      await db.delete(aiIssueExplanations).where(eq(aiIssueExplanations.runId, run.id));
+    }
+    await db.delete(analysisRuns).where(eq(analysisRuns.creditReportId, creditReportId));
   }
 
   // Dispute Letters operations
