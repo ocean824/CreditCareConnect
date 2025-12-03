@@ -56,6 +56,7 @@ export interface IStorage {
   createViolation(violation: InsertViolation): Promise<Violation>;
   getViolationsByReportId(creditReportId: string): Promise<Violation[]>;
   getViolationsByUserId(userId: string): Promise<Violation[]>;
+  deleteViolationsByReportId(creditReportId: string): Promise<void>;
   
   // Dispute Letters operations
   createDisputeLetter(letter: InsertDisputeLetter): Promise<DisputeLetter>;
@@ -254,6 +255,10 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(creditReports, eq(violations.creditReportId, creditReports.id))
       .where(eq(creditReports.userId, userId))
       .orderBy(desc(violations.createdAt));
+  }
+
+  async deleteViolationsByReportId(creditReportId: string): Promise<void> {
+    await db.delete(violations).where(eq(violations.creditReportId, creditReportId));
   }
 
   // Dispute Letters operations

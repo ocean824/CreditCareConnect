@@ -801,6 +801,186 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Force re-analyze a credit report (even if already completed)
+  // This is needed to recover from cases where the old buggy code ran analysis but found 0 violations
+  app.post('/api/credit-reports/:id/force-reanalyze', requireActiveSubscription, async (req: any, res) => {
+    try {
+      const userId = req.session.userId;
+      const reportId = req.params.id;
+      
+      // Get the credit report
+      const reports = await storage.getCreditReportsByUserId(userId);
+      const creditReport = reports.find(r => r.id === reportId);
+      
+      if (!creditReport) {
+        return res.status(404).json({ message: "Credit report not found" });
+      }
+      
+      console.log(`🔄 Force re-analyzing credit report: ${creditReport.fileName} (ID: ${reportId})`);
+      
+      // Delete existing violations for this report
+      try {
+        await storage.deleteViolationsByReportId(creditReport.id);
+        console.log(`🗑️  Deleted existing violations for report ${creditReport.id}`);
+      } catch (e) {
+        console.log(`⚠️  No existing violations to delete`);
+      }
+      
+      // Update status to PENDING
+      await storage.updateCreditReportAnalysis(creditReport.id, null, "PENDING");
+      
+      // Run analysis in background
+      let analysisRun: any;
+      try {
+        analysisRun = await storage.createAnalysisRun({
+          creditReportId: creditReport.id,
+          engineVersion: "1.0.0",
+          aiModel: process.env.OPENAI_MODEL || "gpt-5.1-chat-latest",
+          status: "running",
+        });
+
+        const filesDir = process.env.FILES_DIR || "./files";
+        let filePath;
+        
+        if (!creditReport.fileUrl.startsWith('/files/')) {
+          throw new Error("Cannot reprocess remote files. File must be stored locally.");
+        }
+        
+        const localFileName = path.basename(creditReport.fileUrl);
+        const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        filePath = path.join(filesDir, sanitizedFileName);
+        console.log(`📁 Using local file: ${filePath}`);
+        
+        if (!fs.existsSync(filePath)) {
+          throw new Error(`File not found: ${filePath}. Please re-upload the credit report.`);
+        }
+        
+        // Extract text from PDF
+        console.log(`🔍 Extracting text from ${filePath}...`);
+        const reportText = await ocrPdfOrImage(filePath);
+        console.log(`✅ Extracted ${reportText.length} characters from credit report`);
+        
+        // Parse with AI (use V2 parser with improved date extraction)
+        console.log(`🤖 Parsing credit report with AI V2...`);
+        const { parseCreditReportWithAiOnly } = await import('./services/creditReportParserV2');
+        const triMergeReport = await parseCreditReportWithAiOnly({
+          rawText: reportText,
+          bureauHint: (creditReport.bureau || 'TRI') as any,
+          provider: 'IDENTITYIQ',
+          userId: creditReport.userId,
+        });
+        
+        // Convert to legacy format for rules engine
+        const { convertTriMergeToLegacy } = await import('./services/convertTriMergeToLegacy');
+        const parsedReport = convertTriMergeToLegacy(triMergeReport);
+        
+        const bureauCount = parsedReport.bureaus.length;
+        const tradelineCount = parsedReport.bureaus.reduce((sum: number, b: any) => sum + b.tradelines.length, 0);
+        const collectionCount = parsedReport.bureaus.reduce((sum: number, b: any) => sum + b.collections.length, 0);
+        console.log(`✅ Parsed: ${bureauCount} bureaus, ${tradelineCount} tradelines, ${collectionCount} collections`);
+        
+        // Run analysis
+        console.log(`🔬 Running rules engine analysis...`);
+        const analysisResult = await analyzeWithRulesEngine(parsedReport);
+        console.log(`✅ Analysis complete: ${analysisResult.issues.length} issues detected`);
+        
+        // Save issues
+        for (const issue of analysisResult.issues) {
+          await storage.createIssue({
+            runId: analysisRun.id,
+            issueId: issue.id,
+            ruleId: issue.ruleId,
+            family: issue.family,
+            category: issue.category,
+            severity: issue.severity,
+            affectedEntityType: issue.affectedEntityType,
+            affectedBureaus: issue.affectedBureaus,
+            affectedIds: issue.affectedIds,
+            statutes: issue.statutes,
+            descriptionMachine: issue.descriptionMachine,
+            explanationKey: issue.explanationKey,
+            details: issue.details as any,
+          });
+        }
+        
+        // Save AI explanations
+        for (const explanation of analysisResult.aiExplanations) {
+          await storage.createAiIssueExplanation({
+            runId: analysisRun.id,
+            issueId: explanation.issueId,
+            accountLabel: explanation.accountLabel,
+            humanSummary: explanation.humanSummary,
+            statutes: explanation.statutes,
+            disputeAngle: explanation.disputeAngle,
+            recommendedAction: explanation.recommendedAction,
+            priority: explanation.priority,
+            rawAiPayload: explanation,
+          });
+        }
+        
+        await storage.updateAnalysisRunStatus(
+          analysisRun.id,
+          "completed",
+          new Date(),
+          analysisResult.issues.length,
+          analysisResult.aiExplanations.length
+        );
+
+        // Create legacy violation records
+        const legacyAnalysis = {
+          violations: analysisResult.issues.slice(0, 10).map(issue => ({
+            accountName: (issue.details as any).accountName || "Account",
+            accountNumber: issue.affectedIds[0] || "N/A",
+            bureau: issue.affectedBureaus?.[0] || creditReport.bureau || "EQUIFAX",
+            violationType: issue.category,
+            description: issue.descriptionMachine,
+            statute: issue.statutes.join(", "),
+            severity: issue.severity,
+          })),
+          summary: analysisResult.summary,
+        };
+        
+        await storage.updateCreditReportAnalysis(creditReport.id, legacyAnalysis, "COMPLETED");
+
+        for (const violation of legacyAnalysis.violations) {
+          await storage.createViolation({
+            creditReportId: creditReport.id,
+            accountName: violation.accountName,
+            accountNumber: violation.accountNumber,
+            bureau: violation.bureau,
+            violationType: violation.violationType,
+            description: violation.description,
+            statute: violation.statute,
+            severity: violation.severity,
+            status: "IDENTIFIED"
+          });
+        }
+        
+        console.log(`✅ Force re-analysis completed for ${creditReport.id}: ${analysisResult.issues.length} violations found`);
+        
+        res.json({ 
+          success: true,
+          message: `Re-analysis completed. Found ${analysisResult.issues.length} violations.`,
+          violationsFound: analysisResult.issues.length,
+          reportId: creditReport.id 
+        });
+      } catch (error: any) {
+        console.error("❌ Error in force re-analysis:", error);
+        if (analysisRun) {
+          await storage.updateAnalysisRunStatus(analysisRun.id, "failed");
+        }
+        await storage.updateCreditReportAnalysis(creditReport.id, null, "FAILED");
+        res.status(500).json({ 
+          success: false,
+          message: `Re-analysis failed: ${error.message}` 
+        });
+      }
+    } catch (error: any) {
+      console.error("Error in force re-analyze:", error);
+      res.status(500).json({ message: error.message || "Failed to re-analyze credit report" });
+    }
+  });
+
   // Helper function to safely resolve file paths within the uploads directory
   const safeResolvePath = (fileUrl: string): { valid: boolean; filePath?: string; error?: string } => {
     if (!fileUrl || typeof fileUrl !== 'string') {
