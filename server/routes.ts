@@ -42,7 +42,21 @@ import { extractReportText, detectReportFormat, isTextQualitySufficient, type Ex
 import { draftAiDisputeLetter, convertIssuesToViolationSummaries } from "./services/aiLetterDrafting";
 import { nanoid } from "nanoid";
 
+// Build version - update this when deploying to track which version is live
+const BUILD_VERSION = "2025-12-03-v2";
+const BUILD_TIMESTAMP = new Date().toISOString();
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Version endpoint to verify deployment
+  app.get('/api/version', (req, res) => {
+    res.json({
+      version: BUILD_VERSION,
+      buildTime: BUILD_TIMESTAMP,
+      environment: process.env.NODE_ENV || 'unknown',
+      features: ['force-reanalyze', 'diagnostic-endpoint', 'v2-parser']
+    });
+  });
+
   // User session middleware (for all routes)
   app.use(getUserSession());
   
