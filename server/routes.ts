@@ -688,9 +688,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const reportText = await ocrPdfOrImage(filePath);
           console.log(`✅ Extracted ${reportText.length} characters from credit report`);
           
-          // Parse with AI
-          console.log(`🤖 Parsing credit report with AI...`);
-          const parsedReport = await parseCreditReportText(reportText, creditReport.bureau || "EQUIFAX");
+          // Parse with AI (use V2 parser with improved date extraction)
+          console.log(`🤖 Parsing credit report with AI V2...`);
+          const { parseCreditReportWithAiOnly } = await import('./services/creditReportParserV2');
+          const triMergeReport = await parseCreditReportWithAiOnly({
+            rawText: reportText,
+            bureauHint: (creditReport.bureau || 'TRI') as any,
+            provider: 'IDENTITYIQ',
+            userId: creditReport.userId,
+          });
+          
+          // Convert to legacy format for rules engine
+          const { convertTriMergeToLegacy } = await import('./services/convertTriMergeToLegacy');
+          const parsedReport = convertTriMergeToLegacy(triMergeReport);
           
           const bureauCount = parsedReport.bureaus.length;
           const tradelineCount = parsedReport.bureaus.reduce((sum, b) => sum + b.tradelines.length, 0);

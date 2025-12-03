@@ -242,6 +242,17 @@ export async function requireActiveSubscription(req: any, res: any, next: any) {
   console.log(`🔐 [requireActiveSubscription] Request to ${req.method} ${req.path}`);
   console.log(`   Session userId: ${req.session?.userId || 'NONE'}`);
   
+  // Development/test mode bypass - skip subscription checks when Stripe is not configured
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const stripeNotConfigured = !process.env.STRIPE_SECRET_KEY;
+  
+  if (isDevelopment && stripeNotConfigured && process.env.BYPASS_SUBSCRIPTION_FOR_DEV === 'true') {
+    console.log(`   ⚠️ DEV MODE: Bypassing subscription check (BYPASS_SUBSCRIPTION_FOR_DEV=true)`);
+    if (req.session?.userId) {
+      return next();
+    }
+  }
+  
   // Validate that the user is logged in
   if (!req.session?.userId) {
     console.log(`   ❌ Not authenticated - no session userId`);
