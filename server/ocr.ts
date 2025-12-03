@@ -6,18 +6,43 @@ import fetch from "node-fetch";
 
 export async function ocrPdfOrImage(absPath: string): Promise<string> {
   const ext = path.extname(absPath).toLowerCase();
+  
+  // Validate that the path exists
+  if (!fs.existsSync(absPath)) {
+    throw new Error(`File not found: ${absPath}`);
+  }
+  
   if (ext === ".pdf") {
-    const convert = fromBuffer(fs.readFileSync(absPath), { density: 200, format: "png" });
+    const fileBuffer = fs.readFileSync(absPath);
+    const convert = fromBuffer(fileBuffer, { density: 200, format: "png" });
     const pages = await convert.bulk(-1, { responseType: 'base64' });
+    
+    if (!pages || pages.length === 0) {
+      throw new Error('No pages extracted from PDF');
+    }
+    
     let text = "";
     for (const p of pages) {
-      const res = await Tesseract.recognize(p.base64!, "eng");
+      if (!p.base64) continue;
+      
+      // Convert base64 to Buffer for Tesseract (more reliable than raw base64 string)
+      const imageBuffer = Buffer.from(p.base64, 'base64');
+      const res = await Tesseract.recognize(imageBuffer, "eng", {
+        logger: () => {}, // Suppress verbose logging
+      });
       text += res.data.text + "\n";
     }
     return text.trim();
-  } else {
-    const res = await Tesseract.recognize(absPath, "eng");
+  } else if (['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'].includes(ext)) {
+    // For image files, read as buffer for consistency
+    const imageBuffer = fs.readFileSync(absPath);
+    const res = await Tesseract.recognize(imageBuffer, "eng", {
+      logger: () => {},
+    });
     return res.data.text.trim();
+  } else {
+    // For text files, just read the content directly
+    return fs.readFileSync(absPath, 'utf-8').trim();
   }
 }
 
