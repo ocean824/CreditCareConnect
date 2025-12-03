@@ -13,9 +13,27 @@ import {
 } from "../models/credit";
 import { nanoid } from "nanoid";
 
-const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY;
-const openai = apiKey ? new OpenAI({ apiKey }) : null;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o";
+// Use Replit AI Integrations if available, otherwise fall back to user's OpenAI API key
+// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+const useReplitAI = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+const userApiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY;
+
+const openai = useReplitAI 
+  ? new OpenAI({ 
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY
+    })
+  : (userApiKey ? new OpenAI({ apiKey: userApiKey }) : null);
+
+const OPENAI_MODEL = useReplitAI ? "gpt-5" : (process.env.OPENAI_MODEL || "gpt-4o");
+
+if (useReplitAI) {
+  console.log("✅ Using Replit AI Integrations for credit report parsing");
+} else if (userApiKey) {
+  console.log("⚠️ Using user's OpenAI API key for credit report parsing");
+} else {
+  console.warn("❌ No OpenAI configuration found - parsing will use fallback");
+}
 
 export interface ParseCreditReportParams {
   rawText: string;
@@ -210,6 +228,7 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
 
     console.log(`🤖 Parsing ${bureauHint} report with AI...`);
 
+    // Note: GPT-5 does not support temperature parameter - only default (1) is allowed
     const response = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [
@@ -223,7 +242,7 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
         },
       ],
       response_format: { type: "json_object" },
-      temperature: 0.1,
+      max_completion_tokens: 8192,
     });
 
     const parsed = JSON.parse(response.choices[0].message.content || "{}");
