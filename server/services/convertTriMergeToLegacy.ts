@@ -71,6 +71,15 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
     });
   }
 
+  // Convert addresses to required format
+  const addresses = (report.consumer?.addresses || []).map(addr => ({
+    line1: addr.line1 || "",
+    line2: addr.line2,
+    city: addr.city || "",
+    state: addr.state || "",
+    postalCode: addr.postalCode || "",
+  }));
+
   return {
     pulledAt: new Date().toISOString(),
     provider: report.meta.provider || "IDENTITYIQ",
@@ -78,7 +87,7 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
       fullName: report.consumer?.fullName || "Consumer",
       ssnLast4: report.consumer?.ssnLast4,
       dob: report.consumer?.dob,
-      addresses: report.consumer?.addresses || [{ line1: "", city: "", state: "", postalCode: "" }],
+      addresses: addresses.length > 0 ? addresses : [{ line1: "", city: "", state: "", postalCode: "" }],
       phones: report.consumer?.phones,
       employers: report.consumer?.employers
     },

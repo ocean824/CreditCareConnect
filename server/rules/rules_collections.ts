@@ -38,7 +38,7 @@ function ruleMultipleOpenCollectionsSameDebt(report: CreditReport): IssueFlag[] 
     }
   }
 
-  for (const [key, list] of buckets.entries()) {
+  buckets.forEach((list: KeyedCollection[], key: string) => {
     const openCollections = list;
     if (openCollections.length > 1) {
       issues.push(
@@ -49,20 +49,20 @@ function ruleMultipleOpenCollectionsSameDebt(report: CreditReport): IssueFlag[] 
           severity: 'HIGH',
           statutes: ['FCRA_607b', 'FDCPA_807'],
           affectedEntityType: 'Collection',
-          affectedBureaus: openCollections.map(c => c.bureau as any),
-          affectedIds: openCollections.map(c => c.internalId),
+          affectedBureaus: openCollections.map((c: KeyedCollection) => c.bureau as any),
+          affectedIds: openCollections.map((c: KeyedCollection) => c.internalId),
           descriptionMachine:
             'Multiple collection accounts appear to represent the same underlying debt.',
           explanationKey: 'COL_MULTIPLE_COLLECTIONS_SAME_DEBT',
           details: {
             key,
-            internalIds: openCollections.map(c => c.internalId),
-            balances: openCollections.map(c => c.balance),
+            internalIds: openCollections.map((c: KeyedCollection) => c.internalId),
+            balances: openCollections.map((c: KeyedCollection) => c.balance),
           },
         }),
       );
     }
-  }
+  });
   return issues;
 }
 

@@ -39,6 +39,7 @@ export interface BureauSnapshot {
   status: AccountStatus;
   balance: number | null;
   pastDue: number | null;
+  lastUpdatedDate?: string;
 }
 
 export interface Tradeline {
@@ -95,10 +96,26 @@ export interface Inquiry {
   type?: string;
 }
 
+export interface ConsumerInfo {
+  fullName?: string;
+  ssnLast4?: string;
+  dob?: string;
+  addresses?: Array<{
+    line1?: string;
+    line2?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+  }>;
+  phones?: string[];
+  employers?: string[];
+}
+
 export interface TriMergeCreditReport {
   id: string;
   userId: string;
   meta: CreditReportMeta;
+  consumer?: ConsumerInfo;
   tradelines: Tradeline[];
   collections: CollectionAccount[];
   publicRecords: PublicRecord[];
