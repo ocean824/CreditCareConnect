@@ -41,6 +41,7 @@ OUTPUT RULES (CRITICAL):
 - All money amounts should be numeric (no '$' or commas)
 - If a field value is unknown, use null or empty array
 - All dates must be ISO-8601 format (YYYY-MM-DD)
+- CRITICAL: Extract ALL date fields - these are essential for violation detection!
 
 Return this exact JSON structure:
 {
@@ -52,6 +53,12 @@ Return this exact JSON structure:
     "reportDate": "YYYY-MM-DD",
     "bureausIncluded": ["EXPERIAN", "EQUIFAX", "TRANSUNION"]
   },
+  "consumer": {
+    "fullName": "string",
+    "ssnLast4": "1234",
+    "dob": "YYYY-MM-DD",
+    "addresses": [{"line1": "string", "city": "string", "state": "XX", "postalCode": "12345"}]
+  },
   "tradelines": [
     {
       "id": "string",
@@ -61,13 +68,20 @@ Return this exact JSON structure:
       "status": "OPEN|CLOSED|CURRENT|LATE_30|LATE_60|LATE_90|LATE_120|LATE_150_PLUS|COLLECTION|CHARGE_OFF|FORECLOSURE|REPOSSESSION|UNKNOWN",
       "balance": 1234.56,
       "pastDue": 123.45,
+      "dateOfFirstDelinquency": "YYYY-MM-DD or null",
+      "openedDate": "YYYY-MM-DD or null",
+      "closedDate": "YYYY-MM-DD or null",
+      "lastPaymentDate": "YYYY-MM-DD or null",
+      "creditLimit": 5000,
+      "highCreditLimit": 5000,
       "bureaus": ["EXPERIAN", "EQUIFAX"],
       "bureauSnapshots": [
         {
           "bureau": "EXPERIAN",
           "status": "CHARGE_OFF|LATE_120|CURRENT",
           "balance": 1234.56,
-          "pastDue": 0
+          "pastDue": 0,
+          "lastUpdatedDate": "YYYY-MM-DD or null"
         }
       ],
       "remarks": ["string"]
@@ -78,23 +92,62 @@ Return this exact JSON structure:
       "id": "string",
       "collectorName": "string",
       "originalCreditorName": "string|null",
+      "accountNumberLast4": "string",
       "status": "OPEN_COLLECTION|PAID_COLLECTION|SETTLED|UNKNOWN",
       "balance": 1572.00,
+      "dateOfFirstDelinquency": "YYYY-MM-DD or null",
+      "openedDate": "YYYY-MM-DD or null",
+      "lastUpdatedDate": "YYYY-MM-DD or null",
       "bureaus": ["TRANSUNION", "EXPERIAN"],
       "bureauSnapshots": [
         {
           "bureau": "TRANSUNION",
           "status": "OPEN_COLLECTION",
           "balance": 1572.00,
-          "pastDue": 0
+          "pastDue": 0,
+          "lastUpdatedDate": "YYYY-MM-DD or null"
         }
       ],
       "remarks": []
     }
   ],
-  "publicRecords": [],
-  "inquiries": []
+  "publicRecords": [
+    {
+      "id": "string",
+      "type": "Bankruptcy|TaxLien|Judgment|Other",
+      "courtName": "string",
+      "amount": 0,
+      "filedDate": "YYYY-MM-DD or null",
+      "status": "Filed|Discharged|Dismissed",
+      "bureaus": ["EXPERIAN"]
+    }
+  ],
+  "inquiries": [
+    {
+      "id": "string",
+      "bureau": "EXPERIAN",
+      "inquirerName": "string",
+      "date": "YYYY-MM-DD",
+      "type": "Hard|Soft"
+    }
+  ]
 }
+
+DATE EXTRACTION RULES (CRITICAL FOR VIOLATION DETECTION):
+- dateOfFirstDelinquency: The date when the account FIRST became delinquent. Often labeled "Date of First Delinquency", "DOFD", "First Delinquency", or "Date of Status". ESSENTIAL for 7-year rule violations.
+- openedDate: When the account was opened. Often labeled "Date Opened", "Open Date", or "Account Opened".
+- closedDate: When the account was closed (if applicable).
+- lastPaymentDate: Date of the last payment made on the account.
+- lastUpdatedDate: When the furnisher last reported this account. Often labeled "Date Updated", "Last Reported", "Date of Last Activity".
+- filedDate: For bankruptcies and public records, the date filed with the court.
+
+LOOK FOR THESE DATE LABELS in credit reports:
+- "Date Opened", "Open Date" → openedDate
+- "Date of First Delinquency", "DOFD", "1st Delinquency" → dateOfFirstDelinquency  
+- "Date Closed", "Closed" → closedDate
+- "Last Payment", "Last Payment Date" → lastPaymentDate
+- "Date Reported", "Last Updated", "Date of Last Activity" → lastUpdatedDate
+- "Filed", "Date Filed" → filedDate (for public records)
 
 TRI-MERGE LINKING RULES:
 - IdentityIQ tri-merge reports list accounts separately under "Experian", "Equifax", and "TransUnion" sections
@@ -195,12 +248,19 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
         status: validateAccountStatus(tl.status) || "UNKNOWN",
         balance: tl.balance ?? null,
         pastDue: tl.pastDue ?? null,
+        dateOfFirstDelinquency: normalizeDate(tl.dateOfFirstDelinquency),
+        openedDate: normalizeDate(tl.openedDate),
+        closedDate: normalizeDate(tl.closedDate),
+        lastPaymentDate: normalizeDate(tl.lastPaymentDate),
+        creditLimit: tl.creditLimit ?? null,
+        highCreditLimit: tl.highCreditLimit ?? null,
         bureaus: tl.bureaus || [],
         bureauSnapshots: (tl.bureauSnapshots || []).map((bs: any) => ({
           bureau: bs.bureau as any,
           status: validateAccountStatus(bs.status) || "UNKNOWN",
           balance: bs.balance ?? null,
           pastDue: bs.pastDue ?? null,
+          lastUpdatedDate: normalizeDate(bs.lastUpdatedDate),
         })),
         remarks: tl.remarks || [],
       })),
@@ -208,14 +268,19 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
         id: c.id || nanoid(),
         collectorName: c.collectorName || "Unknown",
         originalCreditorName: c.originalCreditorName,
+        accountNumberLast4: c.accountNumberLast4,
         status: validateCollectionStatus(c.status) || "UNKNOWN",
         balance: c.balance ?? null,
+        dateOfFirstDelinquency: normalizeDate(c.dateOfFirstDelinquency),
+        openedDate: normalizeDate(c.openedDate),
+        lastUpdatedDate: normalizeDate(c.lastUpdatedDate),
         bureaus: c.bureaus || [],
         bureauSnapshots: (c.bureauSnapshots || []).map((bs: any) => ({
           bureau: bs.bureau as any,
           status: validateAccountStatus(bs.status) || "UNKNOWN",
           balance: bs.balance ?? null,
           pastDue: bs.pastDue ?? null,
+          lastUpdatedDate: normalizeDate(bs.lastUpdatedDate),
         })),
         remarks: c.remarks || [],
       })),
@@ -224,6 +289,8 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
         type: pr.type || "OTHER",
         courtName: pr.courtName,
         amount: pr.amount ?? null,
+        filedDate: normalizeDate(pr.filedDate),
+        status: pr.status,
         bureaus: pr.bureaus || [],
       })),
       inquiries: (parsed.inquiries || []).map((inq: any) => ({
@@ -313,4 +380,32 @@ function validateCollectionStatus(status: any): CollectionStatus | null {
   const s = String(status).toUpperCase();
   if (["OPEN_COLLECTION", "PAID_COLLECTION", "SETTLED", "UNKNOWN"].includes(s)) return s as CollectionStatus;
   return null;
+}
+
+function normalizeDate(dateStr: any): string | undefined {
+  if (!dateStr || dateStr === "null" || dateStr === "YYYY-MM-DD or null") return undefined;
+  
+  const str = String(dateStr).trim();
+  if (!str) return undefined;
+  
+  // Already ISO format YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  
+  // Handle MM/DD/YYYY format
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
+    const [month, day, year] = str.split('/');
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  
+  // Handle Month DD, YYYY format (e.g., "January 15, 2024")
+  try {
+    const date = new Date(str);
+    if (!isNaN(date.getTime())) {
+      return date.toISOString().split('T')[0];
+    }
+  } catch (e) {
+    // Ignore parsing errors
+  }
+  
+  return undefined;
 }

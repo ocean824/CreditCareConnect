@@ -1,17 +1,74 @@
 import type { TriMergeCreditReport } from "../models/credit";
 import type { CreditReport, BureauReport, BureauName, Tradeline as LegacyTradeline } from "../models/creditReport";
 
-export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditReport {
-  // Convert new tri-merge format back to legacy format for compatibility with existing rules engine
-  const bureauReports: BureauReport[] = [];
+type ValidBureau = "EXPERIAN" | "EQUIFAX" | "TRANSUNION";
 
-  // Get unique bureaus from the report
-  const bureausToCreate = report.meta.bureausIncluded || ["EXPERIAN", "EQUIFAX", "TRANSUNION"];
+function normalizeBureauCode(bureau: string): ValidBureau | null {
+  if (!bureau) return null;
+  const upperBureau = String(bureau).toUpperCase().trim();
+  
+  if (upperBureau === "EXPERIAN" || upperBureau === "EXP" || upperBureau === "EX") return "EXPERIAN";
+  if (upperBureau === "EQUIFAX" || upperBureau === "EQU" || upperBureau === "EQ" || upperBureau === "EFX") return "EQUIFAX";
+  if (upperBureau === "TRANSUNION" || upperBureau === "TRANS UNION" || upperBureau === "TU" || upperBureau === "TRU") return "TRANSUNION";
+  
+  return null;
+}
+
+function normalizeBureauArray(bureaus: string[] | undefined): ValidBureau[] {
+  if (!bureaus || !Array.isArray(bureaus)) return [];
+  return bureaus
+    .map(b => normalizeBureauCode(b))
+    .filter((b): b is ValidBureau => b !== null);
+}
+
+export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditReport {
+  // Normalize all bureau codes in the report to uppercase
+  const normalizedBureausIncluded = normalizeBureauArray(report.meta.bureausIncluded);
+  const bureausToCreate: ValidBureau[] = normalizedBureausIncluded.length > 0 
+    ? normalizedBureausIncluded 
+    : ["EXPERIAN", "EQUIFAX", "TRANSUNION"];
+
+  // Normalize tradelines
+  const normalizedTradelines = report.tradelines.map(tl => ({
+    ...tl,
+    bureaus: normalizeBureauArray(tl.bureaus),
+    bureauSnapshots: tl.bureauSnapshots.map(bs => ({
+      ...bs,
+      bureau: normalizeBureauCode(bs.bureau) || bs.bureau
+    }))
+  }));
+
+  // Normalize collections
+  const normalizedCollections = report.collections.map(col => ({
+    ...col,
+    bureaus: normalizeBureauArray(col.bureaus),
+    bureauSnapshots: col.bureauSnapshots.map(bs => ({
+      ...bs,
+      bureau: normalizeBureauCode(bs.bureau) || bs.bureau
+    }))
+  }));
+
+  // Normalize public records
+  const normalizedPublicRecords = report.publicRecords.map(pr => ({
+    ...pr,
+    bureaus: normalizeBureauArray(pr.bureaus)
+  }));
+
+  // Normalize inquiries
+  const normalizedInquiries = report.inquiries.map(inq => ({
+    ...inq,
+    bureau: normalizeBureauCode(inq.bureau) || inq.bureau
+  }));
+
+  console.log(`[ConvertTriMerge] Processing ${normalizedTradelines.length} tradelines, ${normalizedCollections.length} collections`);
+  console.log(`[ConvertTriMerge] Bureaus to create: ${bureausToCreate.join(', ')}`);
+
+  const bureauReports: BureauReport[] = [];
 
   for (const bureau of bureausToCreate) {
     const legacyBureauName = bureau === "EXPERIAN" ? "Experian" : bureau === "EQUIFAX" ? "Equifax" : "TransUnion";
 
-    const tradelines: LegacyTradeline[] = report.tradelines
+    const tradelines: LegacyTradeline[] = normalizedTradelines
       .filter((tl) => tl.bureaus.includes(bureau))
       .map((tl) => {
         const snapshot = tl.bureauSnapshots.find((bs) => bs.bureau === bureau);
@@ -35,7 +92,7 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
         } as LegacyTradeline;
       });
 
-    const collections = report.collections
+    const collections = normalizedCollections
       .filter((col) => col.bureaus.includes(bureau))
       .map((col) => {
         const snapshot = col.bureauSnapshots.find((bs) => bs.bureau === bureau);
@@ -52,22 +109,34 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
         } as any;
       });
 
-    bureauReports.push({
-      bureau: legacyBureauName,
-      tradelines,
-      collections,
-      publicRecords: report.publicRecords.filter((pr) => pr.bureaus.includes(bureau)).map((pr) => ({
+    const publicRecords = normalizedPublicRecords
+      .filter((pr) => pr.bureaus.includes(bureau))
+      .map((pr) => ({
         internalId: pr.id,
         type: pr.type as "Bankruptcy" | "TaxLien" | "Judgment" | "Other",
         courtName: pr.courtName,
-        amount: pr.amount
-      })),
-      inquiries: report.inquiries.filter((inq) => inq.bureau === bureau).map((inq) => ({
+        amount: pr.amount,
+        filedDate: pr.filedDate,
+        status: mapPublicRecordStatus(pr.status)
+      }));
+
+    const inquiries = normalizedInquiries
+      .filter((inq) => inq.bureau === bureau)
+      .map((inq) => ({
         internalId: inq.id,
         inquirerName: inq.inquirerName,
         date: inq.date,
         type: "Hard" as const
-      }))
+      }));
+
+    console.log(`[ConvertTriMerge] Bureau ${bureau}: ${tradelines.length} tradelines, ${collections.length} collections, ${publicRecords.length} public records, ${inquiries.length} inquiries`);
+
+    bureauReports.push({
+      bureau: legacyBureauName,
+      tradelines,
+      collections,
+      publicRecords,
+      inquiries
     });
   }
 
@@ -144,4 +213,18 @@ function mapCollectionStatus(status?: string): "Open" | "Closed" | "Paid" | "Set
     DISPUTED: "Disputed"
   };
   return statusMap[statusStr] || "Open";
+}
+
+function mapPublicRecordStatus(status?: string): "Open" | "Satisfied" | "Released" | "Discharged" | undefined {
+  if (!status) return undefined;
+  const statusStr = String(status).toUpperCase();
+  const statusMap: Record<string, "Open" | "Satisfied" | "Released" | "Discharged"> = {
+    OPEN: "Open",
+    FILED: "Open",
+    SATISFIED: "Satisfied",
+    RELEASED: "Released",
+    DISCHARGED: "Discharged",
+    DISMISSED: "Released"
+  };
+  return statusMap[statusStr];
 }
