@@ -6,7 +6,7 @@ import { DocumentHistoryPanel } from "@/components/DocumentHistoryPanel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, TrendingUp, Shield, DollarSign, Target, Trash2 } from "lucide-react";
+import { AlertCircle, TrendingUp, Shield, DollarSign, Target, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
@@ -15,6 +15,7 @@ import type { CreditReport, Violation } from "@shared/schema";
 export default function Analysis() {
   const { user, isLoading } = useAuth();
   const [viewingDocument, setViewingDocument] = useState<any>(null);
+  const [reanalyzing, setReanalyzing] = useState<string | null>(null);
   const { toast } = useToast();
 
   const { data: creditReports, refetch: refetchReports } = useQuery<CreditReport[]>({
@@ -22,7 +23,7 @@ export default function Analysis() {
     enabled: !!user,
   });
 
-  const { data: violations } = useQuery<Violation[]>({
+  const { data: violations, refetch: refetchViolations } = useQuery<Violation[]>({
     queryKey: ["/api/violations"],
     enabled: !!user,
   });
@@ -47,6 +48,28 @@ export default function Analysis() {
       });
     },
   });
+
+  const handleReanalyze = async (reportId: string) => {
+    setReanalyzing(reportId);
+    try {
+      const response = await apiRequest('POST', `/api/credit-reports/${reportId}/force-reanalyze`);
+      const result = await response.json();
+      toast({
+        title: "Re-analysis Complete",
+        description: result.message || `Found ${result.violationsFound || 0} violations`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/violations"] });
+    } catch (error: any) {
+      toast({
+        title: "Re-analysis Failed",
+        description: error.message || "Could not re-analyze the report",
+        variant: "destructive",
+      });
+    } finally {
+      setReanalyzing(null);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -108,16 +131,29 @@ export default function Analysis() {
                         Status: {report.analysisStatus}
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => deleteMutation.mutate(report.id)}
-                      disabled={deleteMutation.isPending}
-                      data-testid={`button-delete-report-${report.id}`}
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleReanalyze(report.id)}
+                        disabled={reanalyzing === report.id}
+                        data-testid={`button-reanalyze-report-${report.id}`}
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                      >
+                        <RefreshCw className={`w-4 h-4 mr-1 ${reanalyzing === report.id ? 'animate-spin' : ''}`} />
+                        {reanalyzing === report.id ? 'Analyzing...' : 'Re-analyze'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => deleteMutation.mutate(report.id)}
+                        disabled={deleteMutation.isPending}
+                        data-testid={`button-delete-report-${report.id}`}
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
