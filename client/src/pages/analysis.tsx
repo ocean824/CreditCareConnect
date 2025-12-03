@@ -6,7 +6,7 @@ import { DocumentHistoryPanel } from "@/components/DocumentHistoryPanel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, TrendingUp, Shield, DollarSign, Target, Trash2, RefreshCw } from "lucide-react";
+import { AlertCircle, TrendingUp, Shield, DollarSign, Target, Trash2, RefreshCw, Bug } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
@@ -16,7 +16,45 @@ export default function Analysis() {
   const { user, isLoading } = useAuth();
   const [viewingDocument, setViewingDocument] = useState<any>(null);
   const [reanalyzing, setReanalyzing] = useState<string | null>(null);
+  const [diagnosticResults, setDiagnosticResults] = useState<any>(null);
+  const [runningDiagnostic, setRunningDiagnostic] = useState(false);
   const { toast } = useToast();
+
+  const runDiagnostic = async () => {
+    setRunningDiagnostic(true);
+    setDiagnosticResults(null);
+    try {
+      const response = await apiRequest('POST', '/api/diagnostics/test-analysis');
+      const results = await response.json();
+      setDiagnosticResults(results);
+      if (results.success && results.rulesEngine?.issuesFound > 0) {
+        toast({
+          title: "Diagnostic Complete",
+          description: `Analysis pipeline working: ${results.rulesEngine.issuesFound} violations detected`,
+        });
+      } else if (!results.success) {
+        toast({
+          title: "Diagnostic Found Issues",
+          description: "Check the diagnostic output for error details",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Analysis Pipeline Issue",
+          description: "No violations detected - check data quality",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Diagnostic Failed",
+        description: error.message || "Could not run diagnostic",
+        variant: "destructive",
+      });
+    } finally {
+      setRunningDiagnostic(false);
+    }
+  };
 
   const { data: creditReports, refetch: refetchReports } = useQuery<CreditReport[]>({
     queryKey: ["/api/credit-reports"],
@@ -278,9 +316,89 @@ export default function Analysis() {
               <p className="text-muted-foreground mb-4">
                 Upload and analyze your credit reports to identify potential violations
               </p>
-              <Button variant="outline" data-testid="button-upload-reports">
-                Upload Credit Reports
-              </Button>
+              <div className="flex gap-3 justify-center">
+                <Button variant="outline" data-testid="button-upload-reports">
+                  Upload Credit Reports
+                </Button>
+                {creditReports && creditReports.length > 0 && (
+                  <Button 
+                    variant="secondary" 
+                    onClick={runDiagnostic}
+                    disabled={runningDiagnostic}
+                    data-testid="button-run-diagnostic"
+                  >
+                    <Bug className={`w-4 h-4 mr-2 ${runningDiagnostic ? 'animate-spin' : ''}`} />
+                    {runningDiagnostic ? 'Running...' : 'Run Diagnostic'}
+                  </Button>
+                )}
+              </div>
+              
+              {diagnosticResults && (
+                <div className="mt-6 text-left bg-muted/50 rounded-lg p-4 max-w-2xl mx-auto">
+                  <h4 className="font-semibold mb-3 flex items-center gap-2">
+                    <Bug className="w-4 h-4" />
+                    Diagnostic Results
+                  </h4>
+                  <div className="text-sm space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Environment:</span>
+                      <span className="font-mono">{diagnosticResults.environment}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">AI Config:</span>
+                      <span className="font-mono">
+                        {diagnosticResults.aiConfig?.hasReplitAI ? 'Replit AI' : 
+                         diagnosticResults.aiConfig?.hasUserOpenAI ? 'OpenAI' : 'None'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Reports Found:</span>
+                      <span className="font-mono">{diagnosticResults.reportCount}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Violations in DB:</span>
+                      <span className="font-mono">{diagnosticResults.violationCount}</span>
+                    </div>
+                    {diagnosticResults.rulesEngine && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Issues Detected by Rules:</span>
+                        <span className="font-mono font-bold text-green-600">
+                          {diagnosticResults.rulesEngine.issuesFound}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {diagnosticResults.steps && (
+                      <div className="mt-4 border-t pt-3">
+                        <h5 className="font-medium mb-2">Pipeline Steps:</h5>
+                        {diagnosticResults.steps.map((step: any, idx: number) => (
+                          <div key={idx} className="flex items-center gap-2 text-xs py-1">
+                            <span className={`w-2 h-2 rounded-full ${
+                              step.status === 'ok' ? 'bg-green-500' : 
+                              step.status === 'error' ? 'bg-red-500' : 'bg-yellow-500'
+                            }`}></span>
+                            <span className="font-mono">{step.step}</span>
+                            <span className="text-muted-foreground ml-auto">
+                              {step.status === 'error' ? step.error : step.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {diagnosticResults.errors && diagnosticResults.errors.length > 0 && (
+                      <div className="mt-4 border-t pt-3 text-red-600">
+                        <h5 className="font-medium mb-2">Errors:</h5>
+                        {diagnosticResults.errors.map((err: any, idx: number) => (
+                          <div key={idx} className="text-xs py-1">
+                            <span className="font-mono">{err.stage}: {err.error}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

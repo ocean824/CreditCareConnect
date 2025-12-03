@@ -988,6 +988,136 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Diagnostic endpoint to test the analysis pipeline without saving to database
+  app.post('/api/diagnostics/test-analysis', requireAuth, async (req: any, res) => {
+    try {
+      const results: any = {
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'unknown',
+        steps: [],
+        errors: []
+      };
+
+      // Step 1: Check environment
+      results.aiConfig = {
+        hasReplitAI: !!(process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY),
+        hasUserOpenAI: !!(process.env.OPENAI_API_KEY || process.env.OPENAI_KEY),
+        model: process.env.OPENAI_MODEL || 'gpt-5'
+      };
+      results.steps.push({ step: 'environment_check', status: 'ok', details: results.aiConfig });
+
+      // Step 2: Get user's credit reports
+      const userId = req.session.userId;
+      const reports = await storage.getCreditReportsByUserId(userId);
+      results.reportCount = reports.length;
+      results.steps.push({ 
+        step: 'fetch_reports', 
+        status: 'ok', 
+        details: { count: reports.length, reports: reports.map(r => ({ id: r.id, status: r.analysisStatus, fileName: r.fileName })) }
+      });
+
+      if (reports.length === 0) {
+        return res.json({ ...results, message: 'No credit reports found' });
+      }
+
+      // Step 3: Get violations count
+      const violations = await storage.getViolationsByUserId(userId);
+      results.violationCount = violations.length;
+      results.steps.push({ step: 'fetch_violations', status: 'ok', details: { count: violations.length } });
+
+      // Step 4: Test with first report if it has a local file
+      const testReport = reports[0];
+      if (testReport.fileUrl.startsWith('/files/')) {
+        const localFileName = path.basename(testReport.fileUrl);
+        const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const filesDir = process.env.FILES_DIR || "./files";
+        const filePath = path.join(filesDir, sanitizedFileName);
+        
+        results.fileCheck = { 
+          fileUrl: testReport.fileUrl, 
+          localPath: filePath, 
+          exists: fs.existsSync(filePath) 
+        };
+        results.steps.push({ step: 'file_check', status: results.fileCheck.exists ? 'ok' : 'error', details: results.fileCheck });
+
+        if (results.fileCheck.exists) {
+          try {
+            // Step 5: Extract text
+            const reportText = await ocrPdfOrImage(filePath);
+            results.textExtraction = { 
+              success: true, 
+              textLength: reportText.length,
+              sample: reportText.substring(0, 500) + '...'
+            };
+            results.steps.push({ step: 'text_extraction', status: 'ok', details: { textLength: reportText.length } });
+
+            // Step 6: Test AI parsing
+            try {
+              const { parseCreditReportWithAiOnly } = await import('./services/creditReportParserV2');
+              const triMergeReport = await parseCreditReportWithAiOnly({
+                rawText: reportText,
+                bureauHint: (testReport.bureau || 'TRI') as any,
+                provider: 'IDENTITYIQ',
+                userId: userId,
+              });
+              
+              results.aiParsing = {
+                success: true,
+                tradelineCount: triMergeReport.tradelines?.length || 0,
+                collectionCount: triMergeReport.collections?.length || 0,
+              };
+              results.steps.push({ step: 'ai_parsing', status: 'ok', details: results.aiParsing });
+
+              // Step 7: Convert to legacy format
+              const { convertTriMergeToLegacy } = await import('./services/convertTriMergeToLegacy');
+              const parsedReport = convertTriMergeToLegacy(triMergeReport);
+              
+              results.legacyConversion = {
+                bureauCount: parsedReport.bureaus.length,
+                totalTradelines: parsedReport.bureaus.reduce((sum: number, b: any) => sum + b.tradelines.length, 0),
+                totalCollections: parsedReport.bureaus.reduce((sum: number, b: any) => sum + b.collections.length, 0),
+              };
+              results.steps.push({ step: 'legacy_conversion', status: 'ok', details: results.legacyConversion });
+
+              // Step 8: Run rules engine
+              const analysisResult = await analyzeWithRulesEngine(parsedReport);
+              results.rulesEngine = {
+                issuesFound: analysisResult.issues.length,
+                aiExplanationsCount: analysisResult.aiExplanations.length,
+                issues: analysisResult.issues.map(i => ({
+                  ruleId: i.ruleId,
+                  category: i.category,
+                  severity: i.severity,
+                  bureaus: i.affectedBureaus
+                }))
+              };
+              results.steps.push({ step: 'rules_engine', status: 'ok', details: results.rulesEngine });
+
+            } catch (parseError: any) {
+              results.steps.push({ step: 'ai_parsing', status: 'error', error: parseError.message });
+              results.errors.push({ stage: 'ai_parsing', error: parseError.message, stack: parseError.stack });
+            }
+          } catch (extractError: any) {
+            results.steps.push({ step: 'text_extraction', status: 'error', error: extractError.message });
+            results.errors.push({ stage: 'text_extraction', error: extractError.message });
+          }
+        }
+      } else {
+        results.steps.push({ step: 'file_check', status: 'skipped', details: 'Remote file URL' });
+      }
+
+      results.success = results.errors.length === 0;
+      res.json(results);
+    } catch (error: any) {
+      console.error("Diagnostic error:", error);
+      res.status(500).json({ 
+        success: false,
+        error: error.message, 
+        stack: error.stack 
+      });
+    }
+  });
+
   // Helper function to safely resolve file paths within the uploads directory
   const safeResolvePath = (fileUrl: string): { valid: boolean; filePath?: string; error?: string } => {
     if (!fileUrl || typeof fileUrl !== 'string') {
