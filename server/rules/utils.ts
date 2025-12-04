@@ -97,3 +97,12 @@ export function daysBetween(start?: string, end?: string): number | undefined {
 export function todayIso(): string {
   return new Date().toISOString().substring(0, 10);
 }
+
+export function monthsBetween(start?: string, end?: string): number | undefined {
+  const s = parseIsoDate(start);
+  const e = parseIsoDate(end);
+  if (!s || !e) return undefined;
+  const years = e.getFullYear() - s.getFullYear();
+  const months = e.getMonth() - s.getMonth();
+  return years * 12 + months;
+}
