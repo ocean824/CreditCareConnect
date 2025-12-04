@@ -1,9 +1,23 @@
 import OpenAI from "openai";
 import type { CreditReport, BureauName } from "../models/creditReport";
 
-const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY;
-const openai = apiKey ? new OpenAI({ apiKey }) : null;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.1-chat-latest";
+// Use Replit AI Integrations if available, otherwise fall back to user's OpenAI API key
+const useReplitAI = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+const userApiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY;
+
+const openai = useReplitAI 
+  ? new OpenAI({ 
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY
+    })
+  : (userApiKey ? new OpenAI({ apiKey: userApiKey }) : null);
+
+// Use gpt-5 for Replit AI, gpt-4o as fallback
+const OPENAI_MODEL = useReplitAI ? "gpt-5" : (process.env.OPENAI_MODEL || "gpt-4o");
+
+if (useReplitAI) {
+  console.log("✅ Using Replit AI Integrations for credit report parser");
+}
 
 export async function parseCreditReportText(
   reportText: string,

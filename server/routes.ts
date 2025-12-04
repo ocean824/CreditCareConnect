@@ -43,7 +43,7 @@ import { draftAiDisputeLetter, convertIssuesToViolationSummaries } from "./servi
 import { nanoid } from "nanoid";
 
 // Build version - update this when deploying to track which version is live
-const BUILD_VERSION = "2025-12-04-v4";
+const BUILD_VERSION = "2025-12-04-v5";
 const BUILD_TIMESTAMP = new Date().toISOString();
 
 export async function registerRoutes(app: Express): Promise<Server> {

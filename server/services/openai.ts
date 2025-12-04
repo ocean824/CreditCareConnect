@@ -1,14 +1,22 @@
 import OpenAI from "openai";
 
-// Using GPT-5.1 Chat (gpt-5.1-chat-latest) - Latest advanced reasoning model for credit analysis
-// Provides superior accuracy for credit report parsing and violation detection with advanced reasoning
-// Configurable via OPENAI_MODEL environment variable
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY 
-});
+// Use Replit AI Integrations if available, otherwise fall back to user's OpenAI API key
+const useReplitAI = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+const userApiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.OPEN_AI_KEY;
 
-// Get the model from environment or default to gpt-5.1-chat-latest
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.1-chat-latest";
+const openai = useReplitAI 
+  ? new OpenAI({ 
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY
+    })
+  : (userApiKey ? new OpenAI({ apiKey: userApiKey }) : null);
+
+// Use gpt-5 for Replit AI, gpt-4o as fallback
+const OPENAI_MODEL = useReplitAI ? "gpt-5" : (process.env.OPENAI_MODEL || "gpt-4o");
+
+if (useReplitAI) {
+  console.log("✅ Using Replit AI Integrations for openai.ts services");
+}
 
 export interface CreditReportViolation {
   accountName: string;
@@ -24,6 +32,11 @@ export async function analyzeCreditReport(reportText: string, bureau?: string): 
   violations: CreditReportViolation[];
   summary: string;
 }> {
+  if (!openai) {
+    console.warn('⚠️  OpenAI not configured - returning empty violations');
+    return { violations: [], summary: "OpenAI not configured" };
+  }
+  
   try {
     const bureauInstruction = bureau === "TRI-MERGE" 
       ? `
@@ -105,6 +118,10 @@ export async function generateDisputeLetter(
     ssnLast4: string;
   }
 ): Promise<string> {
+  if (!openai) {
+    throw new Error("OpenAI not configured");
+  }
+  
   try {
     const bureauAddresses = {
       EQUIFAX: "Equifax Information Services LLC\nP.O. Box 740256\nAtlanta, GA 30374",
@@ -167,6 +184,10 @@ export async function chatWithAI(
   userPlan: string,
   userViolations?: CreditReportViolation[]
 ): Promise<string> {
+  if (!openai) {
+    throw new Error("OpenAI not configured");
+  }
+  
   try {
     const systemPrompt = `
     You are a credit repair AI assistant for Personal Credit Pros. 
@@ -208,6 +229,10 @@ export async function generateCFPBComplaint(
   complaintText: string;
   caseLawCitations: string[];
 }> {
+  if (!openai) {
+    throw new Error("OpenAI not configured");
+  }
+  
   try {
     const prompt = `
     Generate a comprehensive CFPB complaint based on the following credit repair violations and dispute history.
