@@ -42,19 +42,58 @@ export default function Dashboard() {
     if (!creditReports || creditReports.length === 0) return;
     
     setReanalyzing(true);
-    let totalViolationsFound = 0;
     
     try {
-      for (const report of creditReports) {
-        const response = await apiRequest('POST', `/api/credit-reports/${report.id}/force-reanalyze`);
-        const result = await response.json();
-        totalViolationsFound += result.violationsFound || 0;
+      // First, clean up any orphaned reports (files deleted during republish)
+      const cleanupResponse = await apiRequest('POST', '/api/credit-reports/cleanup-orphaned');
+      const cleanupResult = await cleanupResponse.json();
+      
+      if (cleanupResult.deletedCount > 0) {
+        toast({
+          title: "Cleaned Up Old Reports",
+          description: `Removed ${cleanupResult.deletedCount} report(s) with missing files. Please re-upload your credit report.`,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/violations"] });
+        setReanalyzing(false);
+        return;
       }
       
-      toast({
-        title: "Re-analysis Complete",
-        description: `Found ${totalViolationsFound} violations across ${creditReports.length} report(s)`,
-      });
+      // Now re-analyze remaining reports
+      const freshReports = await (await fetch('/api/credit-reports', { credentials: 'include' })).json();
+      
+      if (!freshReports || freshReports.length === 0) {
+        toast({
+          title: "No Reports Found",
+          description: "Please upload a credit report first.",
+        });
+        setReanalyzing(false);
+        return;
+      }
+      
+      let totalViolationsFound = 0;
+      let successCount = 0;
+      
+      for (const report of freshReports) {
+        try {
+          const response = await apiRequest('POST', `/api/credit-reports/${report.id}/force-reanalyze`);
+          const result = await response.json();
+          
+          if (result.success !== false) {
+            totalViolationsFound += result.violationsFound || 0;
+            successCount++;
+          }
+        } catch (error) {
+          console.error("Failed to re-analyze report:", report.id, error);
+        }
+      }
+      
+      if (successCount > 0) {
+        toast({
+          title: "Re-analysis Complete",
+          description: `Found ${totalViolationsFound} violations in ${successCount} report(s)`,
+        });
+      }
       
       queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
       queryClient.invalidateQueries({ queryKey: ["/api/violations"] });

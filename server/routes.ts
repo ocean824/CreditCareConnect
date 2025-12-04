@@ -43,7 +43,7 @@ import { draftAiDisputeLetter, convertIssuesToViolationSummaries } from "./servi
 import { nanoid } from "nanoid";
 
 // Build version - update this when deploying to track which version is live
-const BUILD_VERSION = "2025-12-04-v1";
+const BUILD_VERSION = "2025-12-04-v2";
 const BUILD_TIMESTAMP = new Date().toISOString();
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -604,6 +604,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Clean up orphaned credit reports (files that no longer exist on disk)
+  app.post('/api/credit-reports/cleanup-orphaned', requireActiveSubscription, async (req: any, res) => {
+    try {
+      const userId = req.session.userId;
+      const creditReports = await storage.getCreditReportsByUserId(userId);
+      const filesDir = process.env.FILES_DIR || "./files";
+      
+      let deletedCount = 0;
+      const deletedReports: string[] = [];
+      
+      for (const report of creditReports) {
+        if (report.fileUrl.startsWith('/files/')) {
+          const localFileName = path.basename(report.fileUrl);
+          const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const filePath = path.join(filesDir, sanitizedFileName);
+          
+          if (!fs.existsSync(filePath)) {
+            console.log(`🗑️  Deleting orphaned report: ${report.fileName} (file missing: ${filePath})`);
+            await storage.deleteCreditReport(report.id);
+            deletedReports.push(report.fileName);
+            deletedCount++;
+          }
+        }
+      }
+      
+      res.json({ 
+        success: true,
+        message: deletedCount > 0 
+          ? `Cleaned up ${deletedCount} orphaned report(s)` 
+          : "No orphaned reports found",
+        deletedCount,
+        deletedReports
+      });
+    } catch (error) {
+      console.error("Error cleaning up orphaned reports:", error);
+      res.status(500).json({ message: "Failed to clean up orphaned reports" });
+    }
+  });
+
   // Delete credit report
   app.delete('/api/credit-reports/:id', requireActiveSubscription, async (req: any, res) => {
     try {
@@ -873,7 +912,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`📁 Using local file: ${filePath}`);
         
         if (!fs.existsSync(filePath)) {
-          throw new Error(`File not found: ${filePath}. Please re-upload the credit report.`);
+          return res.status(500).json({ 
+            success: false, 
+            message: `Re-analysis failed: File not found: ${filePath}. Please re-upload the credit report.` 
+          });
         }
         
         // Extract text from PDF
