@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, CreditCard, FileText, Zap } from "lucide-react";
+import { CheckCircle, CreditCard, FileText, Zap, Shield, Sparkles } from "lucide-react";
 
 export default function Landing() {
   const handleGetStarted = () => {
@@ -156,6 +156,120 @@ export default function Landing() {
               </Button>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Unique Rule Sets Section */}
+        <div className="bg-white rounded-2xl p-8 max-w-5xl mx-auto mb-12 shadow-2xl" data-testid="section-unique-rules">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center gap-2 bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-4 py-2 rounded-full text-sm font-bold mb-4">
+              <Sparkles className="w-4 h-4" />
+              UNIQUE TO PERSONAL CREDIT PROS
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <h2 className="text-3xl font-bold text-gray-900 mb-3">
+              11 Advanced Violation Detection Rule Sets
+            </h2>
+            <p className="text-gray-600 max-w-2xl mx-auto">
+              Our proprietary AI engine runs 11 comprehensive rule sets to find every possible violation in your credit report — more than any other service on the market.
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg p-4" data-testid="rule-balance">
+              <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Balance Rules</span>
+                <p className="text-xs text-gray-500">Detects balance reporting errors</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg p-4" data-testid="rule-status">
+              <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Status Rules</span>
+                <p className="text-xs text-gray-500">Finds account status conflicts</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg p-4" data-testid="rule-timeline">
+              <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Timeline Rules</span>
+                <p className="text-xs text-gray-500">Catches date inconsistencies</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg p-4" data-testid="rule-collection">
+              <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Collection Rules</span>
+                <p className="text-xs text-gray-500">Identifies collection violations</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg p-4" data-testid="rule-identity">
+              <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Identity Rules</span>
+                <p className="text-xs text-gray-500">Spots identity discrepancies</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg p-4" data-testid="rule-dispute">
+              <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Dispute Rules</span>
+                <p className="text-xs text-gray-500">Tracks dispute response issues</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg p-4" data-testid="rule-fcra-enhanced">
+              <CheckCircle className="w-6 h-6 text-blue-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Enhanced FCRA Rules</span>
+                <p className="text-xs text-gray-500">Advanced statute detection</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg p-4" data-testid="rule-disputable">
+              <CheckCircle className="w-6 h-6 text-blue-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Disputable Item Detection</span>
+                <p className="text-xs text-gray-500">Finds all challengeable items</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-purple-50 border border-purple-200 rounded-lg p-4" data-testid="rule-fcra-comprehensive">
+              <Shield className="w-6 h-6 text-purple-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Comprehensive FCRA</span>
+                <p className="text-xs text-gray-500">Full Fair Credit Reporting Act</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-purple-50 border border-purple-200 rounded-lg p-4" data-testid="rule-fdcpa">
+              <Shield className="w-6 h-6 text-purple-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Comprehensive FDCPA</span>
+                <p className="text-xs text-gray-500">Debt collection law violations</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 bg-purple-50 border border-purple-200 rounded-lg p-4" data-testid="rule-metro2">
+              <Shield className="w-6 h-6 text-purple-600 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-gray-900">Comprehensive Metro2</span>
+                <p className="text-xs text-gray-500">Credit reporting format errors</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="mt-8 text-center">
+            <div className="inline-flex items-center gap-2 bg-gray-100 rounded-full px-6 py-3">
+              <span className="text-2xl font-bold text-primary">60+</span>
+              <span className="text-gray-700 text-sm">Violation Types Detected Automatically</span>
+            </div>
+          </div>
         </div>
 
         {/* Features Section */}
