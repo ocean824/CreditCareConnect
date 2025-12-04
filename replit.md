@@ -31,8 +31,18 @@ Six new enhanced FCRA rules have been added to detect:
 
 These rules include specific FCRA statute citations for stronger dispute letters.
 
-#### Metro 2 Format Support
-Support for Metro 2 file format parsing using the moov-io/metro2 CLI tool. Converts Metro 2 segments to standard credit report format for analysis.
+#### Metro 2 Comprehensive Violation Detection (December 2025)
+Complete Metro 2 format violation detection covering:
+- **Base Segment Violations**: Missing required fields (account number, creditor name, date opened), invalid status/payment codes
+- **Account Status Code Violations**: Status-balance conflicts, charge-off without date, delinquent without DOFD
+- **Payment Rating Violations**: Impossible payment pattern jumps, gaps in payment history
+- **Date Field Violations**: Future dates, closed before opened, DOFD before opened, last payment before opened
+- **Balance/Limit Violations**: Balance exceeds credit limit, high credit inconsistencies, negative balances, missing credit limit for revolving accounts
+- **K1/K2 Segment Violations**: Missing original creditor (K1), purchased debt documentation (K2), missing DOFD for collections
+- **Cross-Bureau Consistency**: Balance discrepancies, status conflicts between bureaus
+- **Compliance Condition Violations**: Forbearance delinquency violations, hardship without special comment, obsolete closed accounts, medical debt under $500, medical collection too soon
+
+All Metro 2 violations include proper statute citations (METRO2_BASE_SEGMENT, METRO2_K1_SEGMENT, METRO2_K2_SEGMENT) with corresponding FCRA references in dispute letters.
 
 #### Multi-Strategy Text Extraction
 Enhanced text extraction with fallback strategies:
