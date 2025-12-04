@@ -41,6 +41,86 @@ export default function Letters() {
     enabled: !!user,
   });
 
+  const [generatingBureau, setGeneratingBureau] = useState<string | null>(null);
+
+  const generateLetterMutation = useMutation({
+    mutationFn: async ({ bureau, violationIds }: { bureau: string; violationIds: string[] }) => {
+      const response = await apiRequest("POST", "/api/dispute-letters/generate", {
+        bureau,
+        violationIds,
+        round: 1,
+        recipientType: 'BUREAU'
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Letter Generated",
+        description: `Dispute letter for ${data.bureau} has been created.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispute-letters"] });
+      setGeneratingBureau(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Generation Failed",
+        description: error.message || "Failed to generate letter",
+        variant: "destructive",
+      });
+      setGeneratingBureau(null);
+    },
+  });
+
+  const handleGenerateLetter = (bureau: string) => {
+    const bureauViolations = violations?.filter(v => v.bureau === bureau) || [];
+    if (bureauViolations.length === 0) {
+      toast({
+        title: "No Violations",
+        description: `No violations found for ${bureau}`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setGeneratingBureau(bureau);
+    generateLetterMutation.mutate({
+      bureau,
+      violationIds: bureauViolations.map(v => v.id)
+    });
+  };
+
+  const handleGenerateAllLetters = async () => {
+    const bureaus = ["EQUIFAX", "TRANSUNION", "EXPERIAN"];
+    let successCount = 0;
+    let errorCount = 0;
+    
+    try {
+      for (const bureau of bureaus) {
+        const bureauViolations = violations?.filter(v => v.bureau === bureau) || [];
+        if (bureauViolations.length > 0) {
+          setGeneratingBureau(bureau);
+          try {
+            await generateLetterMutation.mutateAsync({
+              bureau,
+              violationIds: bureauViolations.map(v => v.id)
+            });
+            successCount++;
+          } catch (e) {
+            errorCount++;
+          }
+        }
+      }
+      
+      if (successCount > 0) {
+        toast({
+          title: "Letters Generated",
+          description: `Generated ${successCount} dispute letter${successCount > 1 ? 's' : ''}${errorCount > 0 ? ` (${errorCount} failed)` : ''}`,
+        });
+      }
+    } finally {
+      setGeneratingBureau(null);
+    }
+  };
+
   const generateCFPBMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/cfpb-complaints/generate");
@@ -53,10 +133,10 @@ export default function Letters() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/cfpb-complaints"] });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "Generation Failed",
-        description: error.message,
+        description: error.message || "Failed to generate CFPB packet",
         variant: "destructive",
       });
     },
@@ -324,18 +404,38 @@ export default function Letters() {
                       <Button 
                         size="sm" 
                         className="w-full"
-                        disabled={bureauViolations.length === 0}
+                        disabled={bureauViolations.length === 0 || generatingBureau !== null}
+                        onClick={() => handleGenerateLetter(bureau)}
                         data-testid={`button-generate-${bureau.toLowerCase()}`}
                       >
-                        Generate Letter
+                        {generatingBureau === bureau ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          'Generate Letter'
+                        )}
                       </Button>
                     </div>
                   );
                 })}
               </div>
               <div className="text-center">
-                <Button size="lg" data-testid="button-generate-all">
-                  Generate All Letters
+                <Button 
+                  size="lg" 
+                  disabled={generatingBureau !== null}
+                  onClick={handleGenerateAllLetters}
+                  data-testid="button-generate-all"
+                >
+                  {generatingBureau !== null ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Generating {generatingBureau}...
+                    </>
+                  ) : (
+                    'Generate All Letters'
+                  )}
                 </Button>
               </div>
             </CardContent>
