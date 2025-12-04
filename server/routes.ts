@@ -103,6 +103,418 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Import rules engine for test endpoint
+  const { runAllRules } = await import('./rules/engine');
+  
+  // Test endpoint: Verify rules engine with actual credit report data
+  app.get('/api/diagnostic/test-rules-engine', async (req, res) => {
+    try {
+      // Create test credit report based on actual Jarred Starman report from 11/24/2025
+      const testReport: any = {
+        pulledAt: '2025-11-24',
+        provider: 'IdentityIQ',
+        consumer: {
+          fullName: 'JARRED COMSTOCK STARMAN',
+          dob: '1978-05-29',
+          addresses: [
+            { line1: '175 S DESOTO BV', city: 'NAPLES', state: 'FL', postalCode: '34117' },
+            { line1: '520 CROSSFIELD CIR', city: 'NAPLES', state: 'FL', postalCode: '34104-4725' }
+          ]
+        },
+        bureaus: [
+          // TransUnion Bureau
+          {
+            bureau: 'TransUnion' as const,
+            tradelines: [
+              // CROSSCOUNTRY Mortgage #1 - Late 120 Days with impossible payment jump
+              {
+                internalId: 'TU-CROSSCOUNTRY-1',
+                creditorName: 'CROSSCOUNTRY',
+                accountNumberMasked: '71797****',
+                type: 'Mortgage' as const,
+                status: 'Late120' as const,
+                openedDate: '2022-03-11',
+                balance: 85487,
+                highCreditLimit: 85530,
+                creditLimit: 0,
+                pastDueAmount: 0,
+                lastUpdatedDate: '2025-09-30',
+                lastPaymentDate: '2025-09-09',
+                paymentHistory: [
+                  { month: '2025-09', status: '120' as const },
+                  { month: '2025-08', status: '120' as const },
+                  { month: '2025-07', status: '120' as const },
+                  { month: '2025-06', status: '120' as const },
+                  { month: '2025-05', status: '120' as const },
+                  { month: '2025-04', status: '120' as const },
+                  { month: '2025-03', status: '120' as const },
+                  { month: '2024-11', status: '90' as const },
+                  { month: '2024-10', status: '60' as const },
+                  { month: '2024-09', status: 'OK' as const },
+                  { month: '2024-08', status: 'OK' as const },
+                  { month: '2024-07', status: 'OK' as const },
+                ]
+              },
+              // CROSSCOUNTRY Mortgage #2 - Disputed, Late 120 Days
+              {
+                internalId: 'TU-CROSSCOUNTRY-2',
+                creditorName: 'CROSSCOUNTRY',
+                accountNumberMasked: '71797****-2',
+                type: 'Mortgage' as const,
+                status: 'Late120' as const,
+                openedDate: '2021-12-28',
+                balance: 388819,
+                highCreditLimit: 370405,
+                creditLimit: 0,
+                pastDueAmount: 43532,
+                lastUpdatedDate: '2025-09-30',
+                lastPaymentDate: '2024-05-21',
+                dateOfFirstDelinquency: '2024-06-01',
+                paymentHistory: [
+                  { month: '2025-09', status: '120' as const },
+                  { month: '2025-08', status: '120' as const },
+                  { month: '2025-07', status: '120' as const },
+                  { month: '2025-06', status: '120' as const },
+                  { month: '2024-11', status: '90' as const },
+                  { month: '2024-10', status: '60' as const },
+                  { month: '2024-09', status: 'OK' as const },
+                ],
+                metro2: {
+                  specialCommentCode: 'XB' // Disputed
+                }
+              },
+              // ACHIEVEPL - Derogatory installment loan
+              {
+                internalId: 'TU-ACHIEVEPL',
+                creditorName: 'ACHIEVEPL',
+                accountNumberMasked: 'APP1146****',
+                type: 'PersonalLoan' as const,
+                status: 'Delinquent' as const,
+                openedDate: '2021-12-02',
+                balance: 36520,
+                highCreditLimit: 40000,
+                creditLimit: 0,
+                pastDueAmount: 0,
+                lastUpdatedDate: '2025-09-30',
+                paymentHistory: [
+                  { month: '2025-09', status: '120' as const },
+                  { month: '2025-08', status: '120' as const },
+                  { month: '2025-07', status: '120' as const },
+                  { month: '2025-06', status: '120' as const },
+                  { month: '2024-11', status: '90' as const },
+                  { month: '2024-10', status: '60' as const },
+                  { month: '2024-09', status: 'OK' as const },
+                ]
+              },
+              // DISCOVERCARD - Good standing
+              {
+                internalId: 'TU-DISCOVER',
+                creditorName: 'DISCOVERCARD',
+                accountNumberMasked: '601149941680****',
+                type: 'CreditCard' as const,
+                status: 'Open' as const,
+                openedDate: '1992-09-02',
+                balance: 0,
+                highCreditLimit: 7412,
+                creditLimit: 26000,
+                pastDueAmount: 0,
+                lastUpdatedDate: '2019-05-07',
+                paymentHistory: []
+              }
+            ],
+            collections: [
+              // ABSRES INV - Collection from Navy Federal
+              {
+                internalId: 'TU-ABSRES',
+                collectorName: 'ABSRES INV',
+                originalCreditorName: 'NAVY FEDERAL CREDIT UNION',
+                accountNumberMasked: '4975V49****',
+                balance: 3624,
+                status: 'Open' as const,
+                openedDate: '2025-09-16',
+                lastUpdatedDate: '2025-11-20',
+                metro2: {
+                  accountStatusCode: '93' // Collection
+                }
+              },
+              // HARVARD COLL - Collection from IL Dept Human Services
+              {
+                internalId: 'TU-HARVARD',
+                collectorName: 'HARVARD COLL',
+                originalCreditorName: 'IL DEPARTMENT OF HUMAN SERVICE',
+                accountNumberMasked: '3107****',
+                balance: 436,
+                status: 'Open' as const,
+                openedDate: '2025-08-01',
+                lastUpdatedDate: '2025-11-10',
+                metro2: {
+                  accountStatusCode: '93'
+                }
+              },
+              // LVNV FUNDING - Collection from Synchrony/CareCredit (DISPUTED)
+              {
+                internalId: 'TU-LVNV',
+                collectorName: 'LVNV FUNDING',
+                originalCreditorName: 'SYNCHRONY BANK CARECREDIT',
+                accountNumberMasked: '601918365820****',
+                balance: 1572,
+                status: 'Disputed' as const,
+                openedDate: '2024-06-25',
+                lastUpdatedDate: '2025-10-07',
+                metro2: {
+                  specialCommentCode: 'XB' // Disputed
+                }
+              }
+            ],
+            publicRecords: [],
+            inquiries: []
+          },
+          // Experian Bureau - Cross-bureau inconsistencies
+          {
+            bureau: 'Experian' as const,
+            tradelines: [
+              // CROSSCOUNTRY Mortgage #1 - Late 30 Days (differs from TU 120!)
+              {
+                internalId: 'EX-CROSSCOUNTRY-1',
+                creditorName: 'CROSSCOUNTRY',
+                accountNumberMasked: '71797****',
+                type: 'Mortgage' as const,
+                status: 'Late30' as const,
+                openedDate: '2022-03-01',
+                balance: 85487,
+                highCreditLimit: 85530,
+                creditLimit: 0,
+                pastDueAmount: 686, // Different from TU!
+                lastUpdatedDate: '2025-10-31',
+                lastPaymentDate: '2025-09-09',
+                paymentHistory: [
+                  { month: '2025-10', status: '30' as const },
+                  { month: '2025-09', status: 'OK' as const },
+                  { month: '2025-08', status: '180' as const },
+                  { month: '2025-07', status: '180' as const },
+                  { month: '2025-06', status: '180' as const },
+                ]
+              },
+              // CROSSCOUNTRY Mortgage #2 - Late 180 Days (differs from TU 120!)
+              {
+                internalId: 'EX-CROSSCOUNTRY-2',
+                creditorName: 'CROSSCOUNTRY',
+                accountNumberMasked: '71797****-2',
+                type: 'Mortgage' as const,
+                status: 'Late150Plus' as const, // 180 days - differs from TU
+                openedDate: '2021-12-01',
+                balance: 388819,
+                highCreditLimit: 370405,
+                creditLimit: 0,
+                pastDueAmount: 46685, // Different from TU 43532!
+                lastUpdatedDate: '2025-10-31',
+                lastPaymentDate: '2024-05-21',
+                dateOfFirstDelinquency: '2024-06-01',
+                paymentHistory: [
+                  { month: '2025-10', status: '150' as const },
+                  { month: '2025-09', status: '150' as const },
+                  { month: '2025-08', status: '150' as const },
+                  { month: '2025-07', status: '150' as const },
+                ]
+              },
+              // ACHIEVEPL
+              {
+                internalId: 'EX-ACHIEVEPL',
+                creditorName: 'ACHIEVEPL',
+                accountNumberMasked: 'APP1146****',
+                type: 'PersonalLoan' as const,
+                status: 'Delinquent' as const,
+                openedDate: '2021-12-01',
+                balance: 36520,
+                highCreditLimit: 40000,
+                creditLimit: 0,
+                lastUpdatedDate: '2025-09-30'
+              }
+            ],
+            collections: [
+              // ABSOLUTE RESOLUTIONS I
+              {
+                internalId: 'EX-ABSOLUTE',
+                collectorName: 'ABSOLUTE RESOLUTIONS I',
+                accountNumberMasked: '4975V49****',
+                balance: 3624,
+                status: 'Open' as const,
+                openedDate: '2025-09-01',
+                lastUpdatedDate: '2025-11-20',
+                dateOfFirstDelinquency: undefined, // Missing DOFD!
+                metro2: {
+                  accountStatusCode: '93'
+                }
+              },
+              // HARVARD COLL
+              {
+                internalId: 'EX-HARVARD',
+                collectorName: 'HARVARD COLL',
+                originalCreditorName: 'IL DEPARTMENT OF HUMAN SERVICE',
+                accountNumberMasked: '3107****',
+                balance: 436,
+                status: 'Open' as const,
+                openedDate: '2025-08-01',
+                lastUpdatedDate: '2025-11-10'
+              }
+            ],
+            publicRecords: [],
+            inquiries: []
+          },
+          // Equifax Bureau
+          {
+            bureau: 'Equifax' as const,
+            tradelines: [
+              // CROSSCOUNTRY Mortgage #1 - Late 120 Days (matches TU)
+              {
+                internalId: 'EQ-CROSSCOUNTRY-1',
+                creditorName: 'CROSSCOUNTRY',
+                accountNumberMasked: '71797****',
+                type: 'Mortgage' as const,
+                status: 'Late120' as const,
+                openedDate: '2022-03-01',
+                balance: 85487,
+                highCreditLimit: 85530,
+                creditLimit: 0,
+                pastDueAmount: 0,
+                lastUpdatedDate: '2025-09-01',
+                lastPaymentDate: '2025-09-01',
+                paymentHistory: [
+                  { month: '2025-09', status: '120' as const },
+                  { month: '2025-08', status: '120' as const },
+                  { month: '2025-07', status: '120' as const },
+                  { month: '2025-06', status: '120' as const },
+                  { month: '2025-05', status: '120' as const },
+                  { month: '2025-04', status: '120' as const },
+                  { month: '2025-03', status: '120' as const },
+                ]
+              },
+              // CROSSCOUNTRY Mortgage #2
+              {
+                internalId: 'EQ-CROSSCOUNTRY-2',
+                creditorName: 'CROSSCOUNTRY',
+                accountNumberMasked: '71797****-2',
+                type: 'Mortgage' as const,
+                status: 'Late120' as const,
+                openedDate: '2021-12-01',
+                balance: 388819,
+                highCreditLimit: 370405,
+                creditLimit: 0,
+                pastDueAmount: 43532,
+                lastUpdatedDate: '2025-09-01',
+                lastPaymentDate: '2024-07-01',
+                dateOfFirstDelinquency: '2024-06-01',
+                paymentHistory: [
+                  { month: '2025-09', status: '120' as const },
+                  { month: '2025-08', status: '120' as const },
+                  { month: '2025-07', status: '120' as const },
+                  { month: '2024-07', status: '60' as const },
+                  { month: '2024-06', status: 'OK' as const },
+                ]
+              },
+              // ACHIEVEPL
+              {
+                internalId: 'EQ-ACHIEVEPL',
+                creditorName: 'ACHIEVEPL',
+                accountNumberMasked: 'APP1146****',
+                type: 'PersonalLoan' as const,
+                status: 'Delinquent' as const,
+                openedDate: '2021-12-01',
+                balance: 36520,
+                highCreditLimit: 36520, // Different from TU/EX!
+                creditLimit: 0,
+                lastUpdatedDate: '2025-09-01'
+              }
+            ],
+            collections: [
+              // ABSOLUTE RESOLUTIONS I
+              {
+                internalId: 'EQ-ABSOLUTE',
+                collectorName: 'ABSOLUTE RESOLUTIONS I',
+                accountNumberMasked: '4975V49****',
+                balance: 3624,
+                status: 'Open' as const,
+                openedDate: '2025-09-01',
+                lastUpdatedDate: '2025-11-01',
+                dateOfFirstDelinquency: '2022-12-01'
+              },
+              // HARVARD COLL
+              {
+                internalId: 'EQ-HARVARD',
+                collectorName: 'HARVARD COLL',
+                originalCreditorName: 'IL DEPARTMENT OF HUMAN SERVICE',
+                accountNumberMasked: '3107****',
+                balance: 436,
+                status: 'Open' as const,
+                openedDate: '2025-08-01',
+                lastUpdatedDate: '2025-11-01'
+              }
+            ],
+            publicRecords: [],
+            inquiries: []
+          }
+        ]
+      };
+
+      // Run the full rules engine
+      const issues = runAllRules(testReport);
+      
+      // Group issues by category for better readability
+      const issuesByCategory: Record<string, any[]> = {};
+      for (const issue of issues) {
+        const cat = issue.category || 'Uncategorized';
+        if (!issuesByCategory[cat]) {
+          issuesByCategory[cat] = [];
+        }
+        issuesByCategory[cat].push({
+          ruleId: issue.ruleId,
+          family: issue.family,
+          severity: issue.severity,
+          description: issue.descriptionMachine,
+          bureaus: issue.affectedBureaus,
+          statutes: issue.statutes
+        });
+      }
+      
+      // Count by family
+      const byFamily: Record<string, number> = {};
+      for (const issue of issues) {
+        byFamily[issue.family] = (byFamily[issue.family] || 0) + 1;
+      }
+      
+      // Count by severity
+      const bySeverity: Record<string, number> = {};
+      for (const issue of issues) {
+        bySeverity[issue.severity] = (bySeverity[issue.severity] || 0) + 1;
+      }
+      
+      res.json({
+        success: true,
+        version: BUILD_VERSION,
+        testData: {
+          bureaus: testReport.bureaus.length,
+          tradelines: testReport.bureaus.reduce((sum: number, b: any) => sum + b.tradelines.length, 0),
+          collections: testReport.bureaus.reduce((sum: number, b: any) => sum + b.collections.length, 0)
+        },
+        results: {
+          totalIssues: issues.length,
+          byFamily,
+          bySeverity,
+          categories: Object.keys(issuesByCategory).length
+        },
+        issuesByCategory
+      });
+      
+    } catch (error: any) {
+      console.error('Rules engine test error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        stack: error.stack
+      });
+    }
+  });
+
   // User session middleware (for all routes)
   app.use(getUserSession());
   
