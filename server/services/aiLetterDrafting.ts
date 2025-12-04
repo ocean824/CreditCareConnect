@@ -28,6 +28,12 @@ export interface ViolationSummary {
 }
 
 const FCRA_STATUTE_CITATIONS: Record<string, { section: string; title: string; description: string }> = {
+  // FCRA Sections
+  'FCRA_604': {
+    section: '15 U.S.C. § 1681b',
+    title: 'Permissible purposes of consumer reports',
+    description: 'Restricts who may obtain consumer reports and for what purposes.'
+  },
   'FCRA_605': {
     section: '15 U.S.C. § 1681c',
     title: 'Limitations on information contained in consumer reports',
@@ -38,15 +44,25 @@ const FCRA_STATUTE_CITATIONS: Record<string, { section: string; title: string; d
     title: 'Information excluded from consumer reports',
     description: 'Specific time limitations for reporting various types of adverse information.'
   },
+  'FCRA_605b': {
+    section: '15 U.S.C. § 1681c-1',
+    title: 'Identity theft prevention',
+    description: 'Requirements for blocking information resulting from identity theft.'
+  },
   'FCRA_605c': {
     section: '15 U.S.C. § 1681c(c)',
-    title: 'Bankruptcy information',
-    description: 'Requirements for accurate reporting of debts discharged in bankruptcy.'
+    title: 'Medical debt and bankruptcy information',
+    description: 'Requirements for accurate reporting of medical debts and debts discharged in bankruptcy.'
   },
   'FCRA_607b': {
     section: '15 U.S.C. § 1681e(b)',
     title: 'Accuracy of report',
     description: 'Requires consumer reporting agencies to follow reasonable procedures to assure maximum possible accuracy.'
+  },
+  'FCRA_609': {
+    section: '15 U.S.C. § 1681g',
+    title: 'Disclosures to consumers',
+    description: 'Requires credit bureaus to disclose all information in consumer file upon request.'
   },
   'FCRA_611': {
     section: '15 U.S.C. § 1681i',
@@ -58,25 +74,126 @@ const FCRA_STATUTE_CITATIONS: Record<string, { section: string; title: string; d
     title: 'Responsibilities of furnishers of information',
     description: 'Requires furnishers to report accurate and complete information and investigate disputes.'
   },
+  'FCRA_623a1': {
+    section: '15 U.S.C. § 1681s-2(a)(1)',
+    title: 'Duty to provide accurate information',
+    description: 'Prohibits furnishers from reporting information known to be inaccurate.'
+  },
   'FCRA_623a3': {
     section: '15 U.S.C. § 1681s-2(a)(3)',
     title: 'Duty to provide notice of dispute',
     description: 'Requires furnishers to note when information is disputed by the consumer.'
+  },
+  'FCRA_623a5': {
+    section: '15 U.S.C. § 1681s-2(a)(5)',
+    title: 'Duty to provide notice of delinquency',
+    description: 'Requires notice to consumer before reporting delinquent account information.'
+  },
+  
+  // FDCPA Sections
+  'FDCPA_805': {
+    section: '15 U.S.C. § 1692c',
+    title: 'Communication in connection with debt collection',
+    description: 'Restricts communications with consumer and third parties during debt collection.'
+  },
+  'FDCPA_806': {
+    section: '15 U.S.C. § 1692d',
+    title: 'Harassment or abuse',
+    description: 'Prohibits conduct intended to harass, oppress, or abuse in connection with debt collection.'
   },
   'FDCPA_807': {
     section: '15 U.S.C. § 1692e',
     title: 'False or misleading representations',
     description: 'Prohibits debt collectors from using false, deceptive, or misleading representations.'
   },
+  'FDCPA_808': {
+    section: '15 U.S.C. § 1692f',
+    title: 'Unfair practices',
+    description: 'Prohibits unfair or unconscionable means to collect debts, including unauthorized fees.'
+  },
   'FDCPA_809': {
     section: '15 U.S.C. § 1692g',
     title: 'Validation of debts',
-    description: 'Requires debt collectors to provide debt validation upon request.'
+    description: 'Requires debt collectors to provide debt validation upon request within 30 days.'
   },
+  'FDCPA_810': {
+    section: '15 U.S.C. § 1692h',
+    title: 'Multiple debts',
+    description: 'Requires proper application of payments when consumer owes multiple debts.'
+  },
+  'FDCPA_811': {
+    section: '15 U.S.C. § 1692i',
+    title: 'Legal actions by debt collectors',
+    description: 'Restricts venue for legal actions to proper jurisdictions.'
+  },
+  
+  // Metro 2 Sections
   'METRO2': {
     section: 'Metro 2 Format',
     title: 'Consumer Data Industry Association standards',
     description: 'Industry standard for credit reporting data accuracy and formatting requirements.'
+  },
+  'METRO2_BASE_SEGMENT': {
+    section: 'Metro 2 Base Segment',
+    title: 'Base Segment Record Standards',
+    description: 'Core record format requirements including account status codes, payment ratings, dates, and balances.'
+  },
+  'METRO2_K1_SEGMENT': {
+    section: 'Metro 2 K1 Segment',
+    title: 'Original Creditor Information',
+    description: 'Required K1 segment for collection accounts identifying the original creditor name and account.'
+  },
+  'METRO2_K2_SEGMENT': {
+    section: 'Metro 2 K2 Segment',
+    title: 'Purchased Portfolio Information',
+    description: 'Required K2 segment for debt buyers documenting chain of ownership and purchase date.'
+  },
+  
+  // Other Statutes
+  'CARES_FORBEARANCE': {
+    section: 'CARES Act § 4021',
+    title: 'Credit protection during COVID-19',
+    description: 'Requires accounts in forbearance to be reported as current if previously current.'
+  },
+  '15_USC_1681b': {
+    section: '15 U.S.C. § 1681b',
+    title: 'Permissible purposes of consumer reports',
+    description: 'Defines who may access consumer credit reports and for what purposes.'
+  },
+  '15_USC_1681c': {
+    section: '15 U.S.C. § 1681c',
+    title: 'Requirements relating to information in consumer reports',
+    description: 'Sets time limits and restrictions on reporting adverse information.'
+  },
+  '15_USC_1681c_a_6': {
+    section: '15 U.S.C. § 1681c(a)(6)',
+    title: 'Paid medical debt exclusion',
+    description: 'Prohibits reporting of paid medical debt and medical debts under $500.'
+  },
+  '15_USC_1681e_b': {
+    section: '15 U.S.C. § 1681e(b)',
+    title: 'Maximum possible accuracy',
+    description: 'Requires CRAs to maintain reasonable procedures to ensure accuracy of consumer reports.'
+  },
+  '15_USC_1681g': {
+    section: '15 U.S.C. § 1681g',
+    title: 'Disclosures to consumers',
+    description: 'Consumer right to know all information in their credit file.'
+  },
+  '15_USC_1681i': {
+    section: '15 U.S.C. § 1681i',
+    title: 'Disputed information procedures',
+    description: 'Requires investigation and deletion of inaccurate or unverifiable information.'
+  },
+  '15_USC_1681s_2': {
+    section: '15 U.S.C. § 1681s-2',
+    title: 'Responsibilities of furnishers',
+    description: 'Comprehensive furnisher duties for accurate reporting and dispute handling.'
+  },
+  'STATE_LAW_OTHER': {
+    section: 'State Consumer Protection Laws',
+    title: 'State-specific credit reporting requirements',
+    description: 'Additional protections under state consumer protection and credit reporting statutes.'
   },
 };
 
