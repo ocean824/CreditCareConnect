@@ -43,7 +43,7 @@ import { draftAiDisputeLetter, convertIssuesToViolationSummaries } from "./servi
 import { nanoid } from "nanoid";
 
 // Build version - update this when deploying to track which version is live
-const BUILD_VERSION = "2025-12-04-v2";
+const BUILD_VERSION = "2025-12-04-v4";
 const BUILD_TIMESTAMP = new Date().toISOString();
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -53,8 +53,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
       version: BUILD_VERSION,
       buildTime: BUILD_TIMESTAMP,
       environment: process.env.NODE_ENV || 'unknown',
-      features: ['force-reanalyze', 'diagnostic-endpoint', 'v2-parser']
+      features: ['force-reanalyze', 'diagnostic-endpoint', 'v2-parser', 'cleanup-orphaned'],
+      openaiConfigured: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY || !!process.env.OPENAI_API_KEY,
+      usingReplitAI: !!(process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY),
+      model: (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY) ? 'gpt-5' : (process.env.OPENAI_MODEL || 'gpt-4o')
     });
+  });
+  
+  // Diagnostic endpoint to test AI parsing
+  app.get('/api/diagnostic/openai-test', async (req, res) => {
+    try {
+      const OpenAI = (await import("openai")).default;
+      const useReplitAI = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+      const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+      const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+      const model = useReplitAI ? "gpt-5" : (process.env.OPENAI_MODEL || "gpt-4o");
+      
+      if (!apiKey) {
+        return res.json({ 
+          success: false, 
+          error: 'No OpenAI API key configured',
+          envVars: {
+            hasIntegrationKey: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+            hasStandardKey: !!process.env.OPENAI_API_KEY,
+            hasBaseURL: !!baseURL
+          }
+        });
+      }
+      
+      const openai = new OpenAI({ apiKey, baseURL });
+      const testResponse = await openai.chat.completions.create({
+        model,
+        messages: [{ role: 'user', content: 'Say "OK" if you can read this.' }],
+        max_completion_tokens: 10
+      });
+      
+      res.json({ 
+        success: true, 
+        response: testResponse.choices[0].message.content,
+        model,
+        usingReplitAI: !!useReplitAI
+      });
+    } catch (error: any) {
+      res.json({ 
+        success: false, 
+        error: error.message,
+        code: error.code
+      });
+    }
   });
 
   // User session middleware (for all routes)
@@ -922,9 +968,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`🔍 Extracting text from ${filePath}...`);
         const reportText = await ocrPdfOrImage(filePath);
         console.log(`✅ Extracted ${reportText.length} characters from credit report`);
+        console.log(`📄 First 500 chars of extracted text: ${reportText.substring(0, 500)}...`);
+        
+        if (!reportText || reportText.length < 100) {
+          console.error(`❌ Text extraction failed or returned too little content`);
+          return res.status(500).json({ 
+            success: false, 
+            message: `Text extraction failed. Only got ${reportText?.length || 0} characters.` 
+          });
+        }
         
         // Parse with AI (use V2 parser with improved date extraction)
         console.log(`🤖 Parsing credit report with AI V2...`);
+        console.log(`   Bureau hint: ${creditReport.bureau || 'TRI'}`);
         const { parseCreditReportWithAiOnly } = await import('./services/creditReportParserV2');
         const triMergeReport = await parseCreditReportWithAiOnly({
           rawText: reportText,
@@ -933,6 +989,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userId: creditReport.userId,
         });
         
+        console.log(`🧮 AI parse result - tradelines: ${triMergeReport?.tradelines?.length || 0}, collections: ${triMergeReport?.collections?.length || 0}`);
+        console.log(`   Bureaus included: ${triMergeReport?.meta?.bureausIncluded?.join(', ') || 'none'}`);
+        if (triMergeReport?.tradelines?.slice(0, 3)) {
+          for (const tl of triMergeReport.tradelines.slice(0, 3)) {
+            console.log(`   📊 Tradeline: ${tl.creditorName} - Status: ${tl.accountStatus} - Bureaus: ${tl.bureaus?.join(',')}`);
+          }
+        }
+        
         // Convert to legacy format for rules engine
         const { convertTriMergeToLegacy } = await import('./services/convertTriMergeToLegacy');
         const parsedReport = convertTriMergeToLegacy(triMergeReport);
@@ -940,12 +1004,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const bureauCount = parsedReport.bureaus.length;
         const tradelineCount = parsedReport.bureaus.reduce((sum: number, b: any) => sum + b.tradelines.length, 0);
         const collectionCount = parsedReport.bureaus.reduce((sum: number, b: any) => sum + b.collections.length, 0);
-        console.log(`✅ Parsed: ${bureauCount} bureaus, ${tradelineCount} tradelines, ${collectionCount} collections`);
+        console.log(`✅ Legacy format: ${bureauCount} bureaus, ${tradelineCount} tradelines, ${collectionCount} collections`);
         
         // Run analysis
         console.log(`🔬 Running rules engine analysis...`);
         const analysisResult = await analyzeWithRulesEngine(parsedReport);
         console.log(`✅ Analysis complete: ${analysisResult.issues.length} issues detected`);
+        
+        // Log details of each issue found
+        for (const issue of analysisResult.issues) {
+          console.log(`   📌 Issue: ${issue.ruleId} - ${issue.category} (${issue.severity})`);
+        }
         
         // Save issues
         for (const issue of analysisResult.issues) {
