@@ -43,7 +43,7 @@ import { draftAiDisputeLetter, convertIssuesToViolationSummaries } from "./servi
 import { nanoid } from "nanoid";
 
 // Build version - update this when deploying to track which version is live
-const BUILD_VERSION = "2025-12-04-v5";
+const BUILD_VERSION = "2025-12-04-v6";
 const BUILD_TIMESTAMP = new Date().toISOString();
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -993,7 +993,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`   Bureaus included: ${triMergeReport?.meta?.bureausIncluded?.join(', ') || 'none'}`);
         if (triMergeReport?.tradelines?.slice(0, 3)) {
           for (const tl of triMergeReport.tradelines.slice(0, 3)) {
-            console.log(`   📊 Tradeline: ${tl.creditorName} - Status: ${tl.accountStatus} - Bureaus: ${tl.bureaus?.join(',')}`);
+            console.log(`   📊 Tradeline: ${tl.creditorName} - Status: ${tl.status} - Bureaus: ${tl.bureaus?.join(',')}`);
           }
         }
         

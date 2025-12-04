@@ -1,13 +1,15 @@
 import type { BureauName } from './creditReport';
 
 export type StatuteRef =
-  | 'FCRA_607b'
-  | 'FCRA_611'
-  | 'FCRA_623'
+  | 'FCRA_604'
   | 'FCRA_605'
   | 'FCRA_605a'
-  | 'FCRA_623a3'
   | 'FCRA_605c'
+  | 'FCRA_607b'
+  | 'FCRA_609'
+  | 'FCRA_611'
+  | 'FCRA_623'
+  | 'FCRA_623a3'
   | 'FDCPA_807'
   | 'FDCPA_809'
   | 'METRO2'
