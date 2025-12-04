@@ -41,12 +41,68 @@ import { parseMetro2File, isMetro2File, convertMetro2ToCreditReport } from "./se
 import { extractReportText, detectReportFormat, isTextQualitySufficient, type ExtractionResult } from "./services/extraction";
 import { draftAiDisputeLetter, convertIssuesToViolationSummaries } from "./services/aiLetterDrafting";
 import { nanoid } from "nanoid";
+import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { ObjectPermission } from "./objectAcl";
 
 // Build version - update this when deploying to track which version is live
-const BUILD_VERSION = "2025-12-04-v11-metro2-complete";
+const BUILD_VERSION = "2025-12-04-v20-bucket-agnostic";
 const BUILD_TIMESTAMP = new Date().toISOString();
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Serve objects from Object Storage (requires auth to check ownership)
+  app.get("/objects/:objectPath(*)", requireAuth, async (req: any, res) => {
+    const objectStorage = new ObjectStorageService();
+    try {
+      const userId = req.session?.userId;
+      
+      // Normalize the path to prevent traversal and double slashes
+      const rawPath = req.path.replace(/\/+/g, '/');
+      
+      // Reject directory traversal attempts
+      if (rawPath.includes('..') || rawPath.includes('%2e%2e') || rawPath.includes('%252e')) {
+        return res.status(400).json({ error: "Invalid path" });
+      }
+      
+      const objectFile = await objectStorage.getObjectEntityFile(rawPath);
+      
+      // Check if user can access this object
+      const canAccess = await objectStorage.canAccessObjectEntity({
+        userId,
+        objectFile,
+        requestedPermission: ObjectPermission.READ,
+      });
+      
+      if (!canAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Force safe content-disposition to prevent XSS
+      const fileName = path.basename(rawPath);
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}"`);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      
+      objectStorage.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error serving object:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Endpoint to get upload URL for Object Storage
+  app.post("/api/objects/upload", requireAuth, async (req, res) => {
+    try {
+      const objectStorage = new ObjectStorageService();
+      const uploadURL = await objectStorage.getObjectEntityUploadURL();
+      res.json({ uploadURL });
+    } catch (error: any) {
+      console.error("Error getting upload URL:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Version endpoint to verify deployment
   app.get('/api/version', (req, res) => {
     res.json({
@@ -715,20 +771,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: "No file uploaded" });
         }
 
-        // Multer saves with a hashed filename - we need to return the actual saved filename
-        const savedFileName = path.basename(req.file.path);
-        const fileUrl = `/files/${savedFileName}`;
+        const objectStorage = new ObjectStorageService();
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const userId = req.session?.userId || "anonymous";
+        const objectPath = await objectStorage.uploadBuffer(
+          fileBuffer, 
+          req.file.originalname, 
+          req.file.mimetype,
+          userId
+        );
+        
+        fs.unlinkSync(req.file.path);
+        console.log(`📤 [upload-file] Uploaded to Object Storage: ${objectPath}`);
         
         res.json({
-          fileName: savedFileName,  // Return the actual saved filename, not originalname
-          originalName: req.file.originalname,  // Keep original for display purposes
-          fileUrl,
+          fileName: path.basename(objectPath),
+          originalName: req.file.originalname,
+          fileUrl: objectPath,
           fileSize: req.file.size,
           mimeType: req.file.mimetype
         });
       } catch (error: any) {
         console.error("File upload error:", error);
-        res.status(500).json({ message: "File upload failed" });
+        if (req.file?.path && fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+        res.status(500).json({ message: "File upload failed: " + error.message });
       }
     }
   );
@@ -770,53 +838,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Download and parse the uploaded credit report
         console.log(`📄 Analyzing credit report: ${fileName}`);
         
-        // Determine the file path from fileUrl ONLY (don't trust client-provided fileName)
         const filesDir = process.env.FILES_DIR || "./files";
+        let filePath: string;
+        let tempFileCreated = false;
         
-        let filePath;
-        let isLocalFile = false;
-        
-        // Check if fileUrl is a relative path (local file) or absolute URL (remote/local file)
-        // Only treat it as local if it's a relative path starting with /files/
-        if (fileUrl.startsWith('/files/')) {
-          isLocalFile = true;
-          // Extract the filename from the relative URL
+        // Handle different file URL types
+        if (fileUrl.startsWith('/objects/')) {
+          // Object Storage path - download to temp file
+          console.log(`📦 Downloading from Object Storage: ${fileUrl}`);
+          const objectStorage = new ObjectStorageService();
+          try {
+            const fileBuffer = await objectStorage.downloadToBuffer(fileUrl);
+            const ext = path.extname(fileUrl) || '.pdf';
+            const tempFileName = `${crypto.randomUUID()}${ext}`;
+            
+            if (!fs.existsSync(filesDir)) {
+              fs.mkdirSync(filesDir, { recursive: true });
+            }
+            
+            filePath = path.join(filesDir, tempFileName);
+            fs.writeFileSync(filePath, fileBuffer, { mode: 0o600 });
+            tempFileCreated = true;
+            console.log(`✅ Downloaded from Object Storage to ${filePath}`);
+          } catch (objError: any) {
+            console.error(`❌ Object Storage download failed:`, objError.message);
+            throw new Error(`Failed to download credit report from storage: ${objError.message}`);
+          }
+        } else if (fileUrl.startsWith('/files/')) {
+          // Local file path
           const localFileName = path.basename(fileUrl);
-          
-          // SECURITY: Sanitize fileName to prevent path traversal attacks
           const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
           if (!sanitizedFileName || sanitizedFileName === '.' || sanitizedFileName === '..') {
             throw new Error('Invalid file name');
           }
-          
           filePath = path.join(filesDir, sanitizedFileName);
           console.log(`📁 Using local file: ${filePath}`);
         } else {
-          // URL (could be remote or localhost) - prepare to download it
-          // Extract extension from pathname (not full URL) to avoid query params
-          let fileExt = '.pdf'; // Default to PDF
+          // Remote URL - download it
+          let fileExt = '.pdf';
           try {
             const parsedUrl = new URL(fileUrl);
-            const pathname = parsedUrl.pathname;
-            const extFromPath = path.extname(pathname).toLowerCase();
-            // Only use if it's a valid extension
+            const extFromPath = path.extname(parsedUrl.pathname).toLowerCase();
             if (['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(extFromPath)) {
               fileExt = extFromPath;
             }
           } catch (e) {
-            // If URL parsing fails, fallback to PDF
             console.warn('Failed to parse fileUrl for extension, using .pdf');
           }
           
           const downloadFileName = `${crypto.randomUUID()}${fileExt}`;
           filePath = path.join(filesDir, downloadFileName);
-        }
-        
-        // Check if file exists locally, if not and it's a remote URL, download it
-        if (!fs.existsSync(filePath) && !isLocalFile) {
+          
           console.log(`📥 Downloading file from ${fileUrl}...`);
           
-          // SECURITY: Validate fileUrl to prevent SSRF attacks
           let parsedUrl;
           try {
             parsedUrl = new URL(fileUrl);
@@ -824,56 +898,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
             throw new Error('Invalid file URL');
           }
           
-          // Only allow HTTPS and block private IPs
           if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
             throw new Error('Only HTTP/HTTPS URLs are allowed');
           }
           
-          // Block private IP ranges and localhost
           const hostname = parsedUrl.hostname.toLowerCase();
-          if (
-            hostname === 'localhost' ||
-            hostname === '127.0.0.1' ||
-            hostname.startsWith('192.168.') ||
-            hostname.startsWith('10.') ||
-            hostname.startsWith('172.16.') ||
-            hostname.startsWith('172.17.') ||
-            hostname.startsWith('172.18.') ||
-            hostname.startsWith('172.19.') ||
-            hostname.startsWith('172.20.') ||
-            hostname.startsWith('172.21.') ||
-            hostname.startsWith('172.22.') ||
-            hostname.startsWith('172.23.') ||
-            hostname.startsWith('172.24.') ||
-            hostname.startsWith('172.25.') ||
-            hostname.startsWith('172.26.') ||
-            hostname.startsWith('172.27.') ||
-            hostname.startsWith('172.28.') ||
-            hostname.startsWith('172.29.') ||
-            hostname.startsWith('172.30.') ||
-            hostname.startsWith('172.31.') ||
-            hostname.startsWith('169.254.') ||
-            hostname === '[::1]'
-          ) {
+          const blockedHosts = ['localhost', '127.0.0.1', '[::1]'];
+          const blockedPrefixes = ['192.168.', '10.', '169.254.'];
+          for (let i = 16; i <= 31; i++) blockedPrefixes.push(`172.${i}.`);
+          
+          if (blockedHosts.includes(hostname) || blockedPrefixes.some(p => hostname.startsWith(p))) {
             throw new Error('Access to private networks is not allowed');
           }
           
           try {
-            // Ensure the files directory exists
             if (!fs.existsSync(filesDir)) {
               fs.mkdirSync(filesDir, { recursive: true });
             }
             
-            // Download the file with timeout
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+            const timeout = setTimeout(() => controller.abort(), 30000);
             
             const response = await fetch(fileUrl, { 
               signal: controller.signal,
               redirect: 'follow',
-              headers: {
-                'User-Agent': 'PersonalCreditPros/1.0'
-              }
+              headers: { 'User-Agent': 'PersonalCreditPros/1.0' }
             });
             clearTimeout(timeout);
             
@@ -881,21 +930,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
               throw new Error(`Failed to download file: ${response.statusText}`);
             }
             
-            // Limit file size to 50MB
             const contentLength = response.headers.get('content-length');
             if (contentLength && parseInt(contentLength) > 50 * 1024 * 1024) {
               throw new Error('File size exceeds 50MB limit');
             }
             
             const buffer = await response.arrayBuffer();
-            
-            // Write the file to disk
-            fs.writeFileSync(filePath, Buffer.from(buffer), { mode: 0o600 }); // Restrict permissions
+            fs.writeFileSync(filePath, Buffer.from(buffer), { mode: 0o600 });
+            tempFileCreated = true;
             console.log(`✅ Downloaded file to ${filePath}`);
           } catch (downloadError: any) {
             console.error(`❌ Download failed:`, downloadError.message);
             throw new Error(`Failed to download credit report: ${downloadError.message}`);
           }
+        }
+        
+        // Verify file exists
+        if (!fs.existsSync(filePath)) {
+          throw new Error(`Credit report file not found: ${filePath}`);
         }
         
         // Extract text from PDF using OCR
@@ -907,6 +959,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (ocrError: any) {
           console.error(`❌ OCR failed:`, ocrError.message);
           throw new Error(`Failed to extract text from credit report: ${ocrError.message}`);
+        } finally {
+          // Clean up temp file if we created one
+          if (tempFileCreated && fs.existsSync(filePath)) {
+            try {
+              fs.unlinkSync(filePath);
+              console.log(`🧹 Cleaned up temp file: ${filePath}`);
+            } catch (cleanupError) {
+              console.warn(`Failed to cleanup temp file: ${filePath}`);
+            }
+          }
         }
         
         // Parse the text into a structured CreditReport object using AI (tri-merge capable)
@@ -1115,21 +1177,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Credit report not found" });
       }
       
-      // Delete the file if it exists locally
-      if (creditReport.fileUrl.startsWith('/files/')) {
-        const localFileName = path.basename(creditReport.fileUrl);
-        const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const filesDir = process.env.FILES_DIR || "./files";
-        const filePath = path.join(filesDir, sanitizedFileName);
-        
-        try {
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-            console.log(`🗑️  Deleted file: ${filePath}`);
-          }
-        } catch (error) {
-          console.error(`⚠️  Failed to delete file: ${filePath}`, error);
-        }
+      // Delete the file using FileAssetResolver (handles both local and Object Storage)
+      const { fileAssetResolver } = await import('./fileAssetResolver');
+      try {
+        await fileAssetResolver.deleteAsset(creditReport.fileUrl);
+      } catch (error) {
+        console.error(`⚠️  Failed to delete file: ${creditReport.fileUrl}`, error);
       }
       
       // Delete from database (cascade deletes violations, analysis runs, etc.)
@@ -1357,30 +1410,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: "running",
         });
 
-        const filesDir = process.env.FILES_DIR || "./files";
-        let filePath;
+        // Use FileAssetResolver to handle both legacy files and Object Storage
+        const { fileAssetResolver, FileAssetType } = await import('./fileAssetResolver');
         
-        if (!creditReport.fileUrl.startsWith('/files/')) {
-          throw new Error("Cannot reprocess remote files. File must be stored locally.");
-        }
+        // Check if file exists
+        const assetInfo = await fileAssetResolver.getAssetInfo(creditReport.fileUrl);
+        console.log(`📁 File type: ${assetInfo.type}, exists: ${assetInfo.exists}`);
         
-        const localFileName = path.basename(creditReport.fileUrl);
-        const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-        filePath = path.join(filesDir, sanitizedFileName);
-        console.log(`📁 Using local file: ${filePath}`);
-        
-        if (!fs.existsSync(filePath)) {
+        if (!assetInfo.exists) {
           return res.status(500).json({ 
             success: false, 
-            message: `Re-analysis failed: File not found: ${filePath}. Please re-upload the credit report.` 
+            message: `Re-analysis failed: File not found: ${creditReport.fileUrl}. Please re-upload the credit report.` 
           });
         }
         
-        // Extract text from PDF
-        console.log(`🔍 Extracting text from ${filePath}...`);
-        const reportText = await ocrPdfOrImage(filePath);
-        console.log(`✅ Extracted ${reportText.length} characters from credit report`);
-        console.log(`📄 First 500 chars of extracted text: ${reportText.substring(0, 500)}...`);
+        // Download file to temp location for OCR
+        const { tempPath, cleanup } = await fileAssetResolver.downloadToTempFile(creditReport.fileUrl);
+        
+        let reportText = "";
+        try {
+          // Extract text from PDF
+          console.log(`🔍 Extracting text from ${tempPath}...`);
+          reportText = await ocrPdfOrImage(tempPath);
+          console.log(`✅ Extracted ${reportText.length} characters from credit report`);
+          console.log(`📄 First 500 chars of extracted text: ${reportText.substring(0, 500)}...`);
+        } finally {
+          cleanup();
+        }
         
         if (!reportText || reportText.length < 100) {
           console.error(`❌ Text extraction failed or returned too little content`);

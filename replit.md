@@ -15,7 +15,25 @@ The frontend is built with React and TypeScript, using Vite. It employs Radix UI
 The backend is an Express.js application with TypeScript on Node.js, providing a RESTful API with JSON payloads. It features email/password-based user authentication and a separate admin authentication, both using bcrypt and PostgreSQL-backed session stores. Role-based access control (RBAC) with `user` and `admin` roles, along with subscription-gating, ensures secure access. Key API endpoints manage user and admin authentication, profile updates, and protected operations for credit report uploads, violation listings, and dispute letter generation. The architecture promotes modularity, strict access control, and environment-based configuration.
 
 ### Data Storage
-The primary database is PostgreSQL via Neon, leveraging Drizzle ORM for type-safe queries. The schema includes tables for `users`, `userCredentials`, `adminCredentials`, `sessions`, `creditReports`, `violations`, `disputeLetters`, `mailBatches`, `deliveryEvents`, `clientResponses`, `actionTokens`, and `adminAuditLogs`. File storage for uploaded documents and generated PDFs uses the local filesystem. Design decisions include UUID primary keys, JSONB fields for metadata, and timestamp tracking for audit compliance.
+The primary database is PostgreSQL via Neon, leveraging Drizzle ORM for type-safe queries. The schema includes tables for `users`, `userCredentials`, `adminCredentials`, `sessions`, `creditReports`, `violations`, `disputeLetters`, `mailBatches`, `deliveryEvents`, `clientResponses`, `actionTokens`, and `adminAuditLogs`. Design decisions include UUID primary keys, JSONB fields for metadata, and timestamp tracking for audit compliance.
+
+#### File Storage (Replit Object Storage) - December 2025
+Credit report PDFs and uploaded documents are stored in Replit Object Storage for persistence across deployments:
+- **Bucket**: `replit-objstore-a531df73-5340-40f0-a8f9-c84ee0bce191`
+- **PRIVATE_OBJECT_DIR**: `/replit-objstore-.../.private` (includes bucket name)
+- **Service Files**:
+  - `server/objectStorage.ts` - Object Storage client with upload/download/delete
+  - `server/objectAcl.ts` - ACL policy management
+  - `server/fileAssetResolver.ts` - Unified file handling for legacy and new files
+- **File URL Types**:
+  - `/files/...` - Legacy local files
+  - `/objects/...` - New Object Storage files
+  - `https://storage.googleapis.com/...` - Legacy GCS URLs (auto-normalized to /objects/)
+- **API Endpoints**:
+  - `POST /api/upload-file` - Uploads file to Object Storage, returns `/objects/uploads/<uuid>.<ext>`
+  - `GET /objects/:objectPath` - Serves files from Object Storage (requires auth, XSS protected)
+  - `POST /api/objects/upload` - Gets presigned upload URL
+- **ACL**: Files tagged with owner userId; legacy files without ACL allow authenticated read
 
 ### AI & Document Processing
 The platform utilizes OpenAI GPT-5 for credit report analysis, violation detection, and dispute letter generation. OCR processing is handled by Tesseract.js with pdf2pic for text extraction from PDFs. Supported credit report types include single-bureau (EQUIFAX, TRANSUNION, EXPERIAN) and TRI-MERGE reports, with AI tagging violations to specific bureaus. The system uses structured prompts for consistent violation detection, JSON response formats, and severity classification.
