@@ -314,22 +314,41 @@ export default function Analysis() {
               </div>
               <h3 className="text-lg font-semibold mb-2">No Violations Detected</h3>
               <p className="text-muted-foreground mb-4">
-                Upload and analyze your credit reports to identify potential violations
+                {creditReports && creditReports.length > 0 
+                  ? `You have ${creditReports.length} report(s). Click "Re-analyze All" to scan for violations with the latest detection rules.`
+                  : "Upload and analyze your credit reports to identify potential violations"
+                }
               </p>
-              <div className="flex gap-3 justify-center">
+              <div className="flex flex-wrap gap-3 justify-center">
                 <Button variant="outline" data-testid="button-upload-reports">
                   Upload Credit Reports
                 </Button>
                 {creditReports && creditReports.length > 0 && (
-                  <Button 
-                    variant="secondary" 
-                    onClick={runDiagnostic}
-                    disabled={runningDiagnostic}
-                    data-testid="button-run-diagnostic"
-                  >
-                    <Bug className={`w-4 h-4 mr-2 ${runningDiagnostic ? 'animate-spin' : ''}`} />
-                    {runningDiagnostic ? 'Running...' : 'Run Diagnostic'}
-                  </Button>
+                  <>
+                    <Button 
+                      variant="default"
+                      className="bg-blue-600 hover:bg-blue-700"
+                      onClick={async () => {
+                        for (const report of creditReports) {
+                          await handleReanalyze(report.id);
+                        }
+                      }}
+                      disabled={reanalyzing !== null}
+                      data-testid="button-reanalyze-all"
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-2 ${reanalyzing ? 'animate-spin' : ''}`} />
+                      {reanalyzing ? 'Re-analyzing...' : `Re-analyze All (${creditReports.length})`}
+                    </Button>
+                    <Button 
+                      variant="secondary" 
+                      onClick={runDiagnostic}
+                      disabled={runningDiagnostic}
+                      data-testid="button-run-diagnostic"
+                    >
+                      <Bug className={`w-4 h-4 mr-2 ${runningDiagnostic ? 'animate-spin' : ''}`} />
+                      {runningDiagnostic ? 'Running...' : 'Run Diagnostic'}
+                    </Button>
+                  </>
                 )}
               </div>
               
