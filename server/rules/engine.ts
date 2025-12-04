@@ -9,6 +9,8 @@ import { runIdentityRules } from './rules_identity';
 import { runDisputeRules } from './rules_disputes';
 import { runEnhancedFCRARules } from './rules_fcra_enhanced';
 import { runDisputableRules } from './rules_disputable';
+import { runComprehensiveFCRARules } from './rules_fcra_comprehensive';
+import { runComprehensiveFDCPARules } from './rules_fdcpa_comprehensive';
 
 export function runAllRules(report: CreditReport): IssueFlag[] {
   console.log('🔬 [ENGINE] Starting rules engine...');
@@ -68,7 +70,26 @@ export function runAllRules(report: CreditReport): IssueFlag[] {
   console.log(`🔬 [ENGINE] Disputable rules: ${disputableIssues.length} issues`);
   issues.push(...disputableIssues);
   
-  console.log(`🔬 [ENGINE] Total issues found: ${issues.length}`);
+  // Run comprehensive FCRA violation detection
+  const comprehensiveFCRAIssues = runComprehensiveFCRARules(report);
+  console.log(`🔬 [ENGINE] Comprehensive FCRA rules: ${comprehensiveFCRAIssues.length} issues`);
+  issues.push(...comprehensiveFCRAIssues);
   
-  return issues;
+  // Run comprehensive FDCPA violation detection
+  const comprehensiveFDCPAIssues = runComprehensiveFDCPARules(report);
+  console.log(`🔬 [ENGINE] Comprehensive FDCPA rules: ${comprehensiveFDCPAIssues.length} issues`);
+  issues.push(...comprehensiveFDCPAIssues);
+  
+  // Deduplicate issues by ruleId + affectedIds combination
+  const seenKeys = new Set<string>();
+  const deduplicatedIssues = issues.filter(issue => {
+    const key = `${issue.ruleId}|${issue.affectedIds.sort().join(',')}`;
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
+  
+  console.log(`🔬 [ENGINE] Total issues found: ${deduplicatedIssues.length} (deduplicated from ${issues.length})`);
+  
+  return deduplicatedIssues;
 }
