@@ -24,6 +24,7 @@ export function runDisputableRules(report: CreditReport): IssueFlag[] {
   issues.push(...ruleAnyNegativePublicRecord(report));
   issues.push(...ruleHighBalanceUtilization(report));
   issues.push(...ruleRecentInquiries(report));
+  issues.push(...ruleCatchAllNegativeStatus(report));
   
   console.log(`🔎 [DISPUTABLE] Found ${issues.length} disputable items`);
   
@@ -346,5 +347,84 @@ function ruleRecentInquiries(report: CreditReport): IssueFlag[] {
       );
     }
   }
+  return issues;
+}
+
+/**
+ * CATCH-ALL: Flag ANY account that isn't in perfect standing
+ * This ensures we catch all negative items regardless of exact status naming
+ */
+function ruleCatchAllNegativeStatus(report: CreditReport): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  
+  // These are the ONLY statuses considered "positive" - everything else is disputable
+  const positiveStatuses = ['Open', 'Current', 'Closed', 'Paid', 'PaidInFull', 'CURRENT', 'OPEN', 'CLOSED', 'PAID'];
+  
+  for (const b of report.bureaus) {
+    console.log(`🔎 [CATCH-ALL] Checking ${b.tradelines.length} tradelines for bureau ${b.bureau}`);
+    
+    for (const tl of b.tradelines) {
+      const status = tl.status;
+      console.log(`🔎 [CATCH-ALL] Tradeline: ${tl.creditorName}, Status: "${status}", Balance: $${tl.balance}`);
+      
+      // If status is NOT in our positive list, it's potentially negative/disputable
+      if (status && !positiveStatuses.includes(status)) {
+        console.log(`   ✓ FLAGGING as disputable: "${status}" is not in positive list`);
+        issues.push(
+          createIssueFlag({
+            ruleId: 'DISP_008_CATCH_ALL_NEGATIVE',
+            family: 'DISPUTABLE',
+            category: 'NEGATIVE_STATUS',
+            severity: 'MEDIUM',
+            statutes: ['FCRA_611', 'FCRA_623'],
+            affectedEntityType: 'Tradeline',
+            affectedBureaus: [b.bureau],
+            affectedIds: [tl.internalId],
+            descriptionMachine:
+              `${tl.creditorName} account showing "${status}" status with balance $${tl.balance || 0}. Request verification of account status and accuracy.`,
+            explanationKey: 'DISP_NEGATIVE_STATUS',
+            details: {
+              bureau: b.bureau,
+              internalId: tl.internalId,
+              creditorName: tl.creditorName,
+              status: status,
+              balance: tl.balance,
+              accountName: tl.creditorName,
+            },
+          })
+        );
+      }
+      
+      // Also flag any account with a balance that has past due amount
+      if ((tl.pastDueAmount ?? 0) > 0) {
+        console.log(`   ✓ FLAGGING due to past due amount: $${tl.pastDueAmount}`);
+        issues.push(
+          createIssueFlag({
+            ruleId: 'DISP_009_PAST_DUE_BALANCE',
+            family: 'DISPUTABLE',
+            category: 'PAST_DUE',
+            severity: 'HIGH',
+            statutes: ['FCRA_611', 'FCRA_623'],
+            affectedEntityType: 'Tradeline',
+            affectedBureaus: [b.bureau],
+            affectedIds: [tl.internalId],
+            descriptionMachine:
+              `${tl.creditorName} showing past due amount of $${tl.pastDueAmount}. Request verification of payment history and balance accuracy.`,
+            explanationKey: 'DISP_PAST_DUE',
+            details: {
+              bureau: b.bureau,
+              internalId: tl.internalId,
+              creditorName: tl.creditorName,
+              pastDueAmount: tl.pastDueAmount,
+              balance: tl.balance,
+              accountName: tl.creditorName,
+            },
+          })
+        );
+      }
+    }
+  }
+  
+  console.log(`🔎 [CATCH-ALL] Found ${issues.length} items via catch-all rule`);
   return issues;
 }
