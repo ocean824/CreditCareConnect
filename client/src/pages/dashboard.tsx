@@ -11,13 +11,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle, Clock, AlertCircle, FileText, Download, Eye } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, FileText, Download, Eye, RefreshCw } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { CreditReport, Violation, DisputeLetter } from "@shared/schema";
 
 export default function Dashboard() {
   const { user, isLoading } = useAuth();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const { toast } = useToast();
 
   const { data: creditReports } = useQuery<CreditReport[]>({
     queryKey: ["/api/credit-reports"],
@@ -33,6 +37,37 @@ export default function Dashboard() {
     queryKey: ["/api/dispute-letters"],
     enabled: !!user,
   });
+
+  const handleReanalyzeAll = async () => {
+    if (!creditReports || creditReports.length === 0) return;
+    
+    setReanalyzing(true);
+    let totalViolationsFound = 0;
+    
+    try {
+      for (const report of creditReports) {
+        const response = await apiRequest('POST', `/api/credit-reports/${report.id}/force-reanalyze`);
+        const result = await response.json();
+        totalViolationsFound += result.violationsFound || 0;
+      }
+      
+      toast({
+        title: "Re-analysis Complete",
+        description: `Found ${totalViolationsFound} violations across ${creditReports.length} report(s)`,
+      });
+      
+      queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/violations"] });
+    } catch (error: any) {
+      toast({
+        title: "Re-analysis Failed",
+        description: error.message || "Could not re-analyze reports",
+        variant: "destructive",
+      });
+    } finally {
+      setReanalyzing(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -135,6 +170,18 @@ export default function Dashboard() {
                 <CardContent className="p-6 text-center">
                   <div className="text-3xl font-bold text-red-500 mb-2">{totalViolations}</div>
                   <div className="text-sm text-muted-foreground">Violations Found</div>
+                  {totalViolations === 0 && completedReports.length > 0 && (
+                    <Button 
+                      size="sm"
+                      className="mt-3 bg-blue-600 hover:bg-blue-700"
+                      onClick={handleReanalyzeAll}
+                      disabled={reanalyzing}
+                      data-testid="button-reanalyze-all-dashboard"
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-2 ${reanalyzing ? 'animate-spin' : ''}`} />
+                      {reanalyzing ? 'Analyzing...' : 'Re-analyze Reports'}
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
               <Card data-testid="stat-letters">
