@@ -180,26 +180,101 @@ function mapTradelineType(type: string): "Mortgage" | "Auto" | "CreditCard" | "S
   return typeMap[typeStr] || "Other";
 }
 
-function mapAccountStatus(status: string): "Open" | "Closed" | "ChargeOff" | "Collection" | "Repossession" | "Foreclosure" | "Late30" | "Late60" | "Late90" | "Late120" | "Late150Plus" | "Delinquent" | "Unknown" {
+function mapAccountStatus(status: string): "Open" | "Closed" | "ChargeOff" | "Collection" | "Repossession" | "Foreclosure" | "Late30" | "Late60" | "Late90" | "Late120" | "Late150Plus" | "Delinquent" | "Paid" | "Unknown" {
   if (!status) return "Unknown";
-  const statusStr = String(status).toUpperCase();
-  const statusMap: Record<string, "Open" | "Closed" | "ChargeOff" | "Collection" | "Repossession" | "Foreclosure" | "Late30" | "Late60" | "Late90" | "Late120" | "Late150Plus" | "Delinquent" | "Unknown"> = {
+  const statusStr = String(status).toUpperCase().replace(/[_\s-]+/g, ''); // Normalize: remove underscores, spaces, hyphens
+  
+  const statusMap: Record<string, "Open" | "Closed" | "ChargeOff" | "Collection" | "Repossession" | "Foreclosure" | "Late30" | "Late60" | "Late90" | "Late120" | "Late150Plus" | "Delinquent" | "Paid"> = {
+    // Positive statuses - account in good standing
     CURRENT: "Open",
     OPEN: "Open",
+    ACTIVE: "Open",
+    OPENACTIVE: "Open",
+    CURRENTOPEN: "Open",
+    PAYS: "Open",
+    PAYSASAGREED: "Open",
+    PAYINGASAGREED: "Open",
+    
+    // Closed/Paid statuses - account paid off or closed in good standing
     CLOSED: "Closed",
+    CLOSEDPAID: "Closed",
+    PAIDCLOSED: "Closed",
+    PAID: "Paid",
+    PAIDINFULL: "Paid",
+    PAIDFULL: "Paid",
+    PAIDSATISFIED: "Paid",
+    SATISFIED: "Paid",
+    SETTLED: "Paid",
+    SETTLEDINFULL: "Paid",
+    SETTLEDLESSTHANFULL: "Paid",
+    ZEBALANCE: "Closed",
+    ZEROBALANCE: "Closed",
+    TRANSFERREDCLOSED: "Closed",
+    TRANSFERRED: "Closed",
+    REFINANCED: "Closed",
+    
+    // Late payment statuses - negative, disputable
+    LATE30: "Late30",
     LATE_30: "Late30",
+    LATE60: "Late60",
     LATE_60: "Late60",
+    LATE90: "Late90",
     LATE_90: "Late90",
+    LATE120: "Late120",
     LATE_120: "Late120",
+    LATE150: "Late150Plus",
+    LATE_150: "Late150Plus",
+    LATE150PLUS: "Late150Plus",
     LATE_150_PLUS: "Late150Plus",
+    LATE180: "Late150Plus",
+    LATE_180: "Late150Plus",
     DELINQUENT: "Delinquent",
-    CHARGE_OFF: "ChargeOff",
+    PASTDUE: "Delinquent",
+    
+    // Negative statuses - severely derogatory
     CHARGEOFF: "ChargeOff",
+    CHARGE_OFF: "ChargeOff",
+    CHARGEDOFF: "ChargeOff",
+    WRITTENOFF: "ChargeOff",
+    BADDEBT: "ChargeOff",
     COLLECTION: "Collection",
+    INCOLLECTION: "Collection",
+    SENTCOLLECTION: "Collection",
     FORECLOSURE: "Foreclosure",
-    REPOSSESSION: "Repossession"
+    FORECLOSED: "Foreclosure",
+    REPOSSESSION: "Repossession",
+    REPOSSESSED: "Repossession",
+    VOLUNTARY: "Repossession",
+    VOLUNTARYSURRENDER: "Repossession",
   };
-  return statusMap[statusStr] || "Unknown";
+  
+  // Check the normalized status
+  if (statusMap[statusStr]) {
+    return statusMap[statusStr];
+  }
+  
+  // Fallback pattern matching for variations
+  if (statusStr.includes('PAID') || statusStr.includes('SATISF')) {
+    return "Paid";
+  }
+  if (statusStr.includes('CLOSED') || statusStr.includes('TRANSFER')) {
+    return "Closed";
+  }
+  if (statusStr.includes('CURRENT') || statusStr.includes('OPEN') || statusStr.includes('ACTIVE')) {
+    return "Open";
+  }
+  if (statusStr.includes('CHARGEOFF') || statusStr.includes('WRITEOFF') || statusStr.includes('BADDEBT')) {
+    return "ChargeOff";
+  }
+  if (statusStr.includes('COLLECTION')) {
+    return "Collection";
+  }
+  if (statusStr.includes('LATE') || statusStr.includes('DELINQ') || statusStr.includes('PASTDUE')) {
+    return "Delinquent";
+  }
+  
+  console.log(`⚠️ [STATUS] Unmapped status: "${status}" → returning Unknown`);
+  return "Unknown";
 }
 
 function mapCollectionStatus(status?: string): "Open" | "Closed" | "Paid" | "Settled" | "Disputed" {

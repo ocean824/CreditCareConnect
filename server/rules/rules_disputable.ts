@@ -358,7 +358,16 @@ function ruleCatchAllNegativeStatus(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   
   // These are the ONLY statuses considered "positive" - everything else is disputable
-  const positiveStatuses = ['Open', 'Current', 'Closed', 'Paid', 'PaidInFull', 'CURRENT', 'OPEN', 'CLOSED', 'PAID'];
+  // Must match all positive statuses from mapAccountStatus in convertTriMergeToLegacy.ts
+  const positiveStatuses = [
+    'Open', 'Closed', 'Paid', 'Transferred', 'Sold',
+    'Current', 'Active', 'Settled', 'Satisfied', 'Refinanced',
+    // Uppercase versions
+    'OPEN', 'CLOSED', 'PAID', 'TRANSFERRED', 'SOLD',
+    'CURRENT', 'ACTIVE', 'SETTLED', 'SATISFIED', 'REFINANCED',
+    // Common variations
+    'PaidInFull', 'ClosedPaid', 'ZeroBalance',
+  ];
   
   for (const b of report.bureaus) {
     console.log(`🔎 [CATCH-ALL] Checking ${b.tradelines.length} tradelines for bureau ${b.bureau}`);
