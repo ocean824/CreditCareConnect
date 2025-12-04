@@ -113,12 +113,40 @@ function ruleAnyChargeOff(report: CreditReport): IssueFlag[] {
 function ruleAnyLateStatus(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   
-  const lateStatuses = ['Late', 'Delinquent', 'Past Due'];
+  // These are the late status values from the new model
+  const lateStatusValues = ['Late30', 'Late60', 'Late90', 'Late120', 'Late150Plus', 'Delinquent'];
   const latePaymentCodes = ['30', '60', '90', '120', '150', 'CO'];
   
   for (const b of report.bureaus) {
     for (const tl of b.tradelines) {
-      // Check payment history for any late payments
+      // Check if account status is a late status
+      if (lateStatusValues.includes(tl.status)) {
+        issues.push(
+          createIssueFlag({
+            ruleId: 'DISP_003_LATE_STATUS',
+            family: 'DISPUTABLE',
+            category: 'LATE_PAYMENT',
+            severity: 'HIGH',
+            statutes: ['FCRA_611', 'FCRA_623'],
+            affectedEntityType: 'Tradeline',
+            affectedBureaus: [b.bureau],
+            affectedIds: [tl.internalId],
+            descriptionMachine:
+              `${tl.creditorName} account showing ${tl.status} status. Late payment reporting requires verification of payment dates and accuracy.`,
+            explanationKey: 'DISP_LATE_STATUS',
+            details: {
+              bureau: b.bureau,
+              internalId: tl.internalId,
+              creditorName: tl.creditorName,
+              status: tl.status,
+              balance: tl.balance,
+              accountName: tl.creditorName,
+            },
+          })
+        );
+      }
+      
+      // Also check payment history for any late payments
       const latePayments = tl.paymentHistory?.filter(p => 
         latePaymentCodes.includes(p.status) || p.status === 'CO'
       ) || [];

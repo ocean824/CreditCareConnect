@@ -180,19 +180,21 @@ function mapTradelineType(type: string): "Mortgage" | "Auto" | "CreditCard" | "S
   return typeMap[typeStr] || "Other";
 }
 
-function mapAccountStatus(status: string): "Open" | "Closed" | "ChargeOff" | "Collection" | "Repossession" | "Foreclosure" | "Unknown" {
+function mapAccountStatus(status: string): "Open" | "Closed" | "ChargeOff" | "Collection" | "Repossession" | "Foreclosure" | "Late30" | "Late60" | "Late90" | "Late120" | "Late150Plus" | "Delinquent" | "Unknown" {
   if (!status) return "Unknown";
   const statusStr = String(status).toUpperCase();
-  const statusMap: Record<string, "Open" | "Closed" | "ChargeOff" | "Collection" | "Repossession" | "Foreclosure" | "Unknown"> = {
+  const statusMap: Record<string, "Open" | "Closed" | "ChargeOff" | "Collection" | "Repossession" | "Foreclosure" | "Late30" | "Late60" | "Late90" | "Late120" | "Late150Plus" | "Delinquent" | "Unknown"> = {
     CURRENT: "Open",
     OPEN: "Open",
     CLOSED: "Closed",
-    LATE_30: "Open",
-    LATE_60: "Open",
-    LATE_90: "Open",
-    LATE_120: "Open",
-    LATE_150_PLUS: "Open",
+    LATE_30: "Late30",
+    LATE_60: "Late60",
+    LATE_90: "Late90",
+    LATE_120: "Late120",
+    LATE_150_PLUS: "Late150Plus",
+    DELINQUENT: "Delinquent",
     CHARGE_OFF: "ChargeOff",
+    CHARGEOFF: "ChargeOff",
     COLLECTION: "Collection",
     FORECLOSURE: "Foreclosure",
     REPOSSESSION: "Repossession"

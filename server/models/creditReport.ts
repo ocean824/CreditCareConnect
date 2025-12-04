@@ -55,6 +55,12 @@ export type TradelineStatus =
   | 'Collection'
   | 'Repossession'
   | 'Foreclosure'
+  | 'Late30'
+  | 'Late60'
+  | 'Late90'
+  | 'Late120'
+  | 'Late150Plus'
+  | 'Delinquent'
   | 'Unknown';
 
 export interface Metro2Snapshot {
