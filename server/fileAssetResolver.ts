@@ -92,6 +92,7 @@ export class FileAssetResolver {
   async getAssetInfo(fileUrl: string): Promise<FileAssetInfo> {
     const { url: normalizedUrl, type } = this.normalizeUrl(fileUrl);
     let exists = false;
+    const isLegacyGCS = fileUrl.startsWith('https://storage.googleapis.com/');
 
     try {
       switch (type) {
@@ -101,7 +102,22 @@ export class FileAssetResolver {
           break;
           
         case FileAssetType.OBJECT_STORAGE:
-          exists = await this.objectStorage.objectExists(normalizedUrl);
+          // For legacy GCS URLs that were normalized, check the ORIGINAL URL first
+          // because the file might not have been migrated to new Object Storage
+          if (isLegacyGCS) {
+            try {
+              console.log(`🔍 Checking legacy GCS URL: ${fileUrl}`);
+              const response = await fetch(fileUrl, { method: 'HEAD' });
+              exists = response.ok;
+              console.log(`   Legacy GCS URL exists: ${exists}`);
+            } catch (e) {
+              console.log(`   Legacy GCS URL check failed: ${e}`);
+              // Fallback to checking normalized Object Storage path
+              exists = await this.objectStorage.objectExists(normalizedUrl);
+            }
+          } else {
+            exists = await this.objectStorage.objectExists(normalizedUrl);
+          }
           break;
           
         case FileAssetType.REMOTE_URL:
@@ -109,13 +125,23 @@ export class FileAssetResolver {
             const response = await fetch(normalizedUrl, { method: 'HEAD' });
             exists = response.ok;
           } catch {
-            exists = false;
+            // For remote URLs, if HEAD fails, assume it might exist (don't delete)
+            // This is safer than incorrectly marking files as not existing
+            exists = true;
+            console.log(`⚠️ Could not verify remote URL, assuming exists: ${normalizedUrl}`);
           }
+          break;
+          
+        case FileAssetType.UNKNOWN:
+          // For unknown types, assume they exist to prevent accidental deletion
+          exists = true;
+          console.log(`⚠️ Unknown file type, assuming exists: ${fileUrl}`);
           break;
       }
     } catch (error) {
       console.error(`Error checking asset existence: ${error}`);
-      exists = false;
+      // On error, assume the file exists to prevent accidental deletion
+      exists = true;
     }
 
     return {
@@ -138,6 +164,7 @@ export class FileAssetResolver {
     const tempDir = os.tmpdir();
     const tempFileName = `credit-report-${randomUUID()}.pdf`;
     const tempPath = path.join(tempDir, tempFileName);
+    const isLegacyGCS = fileUrl.startsWith('https://storage.googleapis.com/');
 
     const cleanup = () => {
       try {
@@ -162,9 +189,23 @@ export class FileAssetResolver {
           break;
 
         case FileAssetType.OBJECT_STORAGE:
-          const buffer = await this.objectStorage.downloadToBuffer(normalizedUrl);
-          fs.writeFileSync(tempPath, buffer);
-          console.log(`☁️ Downloaded Object Storage file to temp: ${tempPath}`);
+          // For legacy GCS URLs, download from the ORIGINAL URL directly
+          if (isLegacyGCS) {
+            console.log(`🌐 Downloading from legacy GCS URL: ${fileUrl}`);
+            const gcsResponse = await fetch(fileUrl, {
+              headers: { 'User-Agent': 'PersonalCreditPros/1.0' }
+            });
+            if (!gcsResponse.ok) {
+              throw new Error(`Failed to download from GCS: ${gcsResponse.statusText}`);
+            }
+            const gcsBuffer = Buffer.from(await gcsResponse.arrayBuffer());
+            fs.writeFileSync(tempPath, gcsBuffer);
+            console.log(`🌐 Downloaded legacy GCS file to temp: ${tempPath}`);
+          } else {
+            const buffer = await this.objectStorage.downloadToBuffer(normalizedUrl);
+            fs.writeFileSync(tempPath, buffer);
+            console.log(`☁️ Downloaded Object Storage file to temp: ${tempPath}`);
+          }
           break;
 
         case FileAssetType.REMOTE_URL:
