@@ -102,18 +102,40 @@ export class FileAssetResolver {
           break;
           
         case FileAssetType.OBJECT_STORAGE:
-          // For legacy GCS URLs that were normalized, check the ORIGINAL URL first
-          // because the file might not have been migrated to new Object Storage
+          // For legacy GCS URLs that were normalized, check Object Storage first
+          // because that's where the file should be (or was migrated to)
           if (isLegacyGCS) {
+            console.log(`🔍 Checking legacy GCS URL via Object Storage: ${normalizedUrl}`);
             try {
-              console.log(`🔍 Checking legacy GCS URL: ${fileUrl}`);
-              const response = await fetch(fileUrl, { method: 'HEAD' });
-              exists = response.ok;
-              console.log(`   Legacy GCS URL exists: ${exists}`);
-            } catch (e) {
-              console.log(`   Legacy GCS URL check failed: ${e}`);
-              // Fallback to checking normalized Object Storage path
               exists = await this.objectStorage.objectExists(normalizedUrl);
+              console.log(`   Object Storage exists: ${exists}`);
+              
+              // If not found in Object Storage, try HEAD request to original URL
+              // But be conservative: if we get auth errors (403/401), assume it exists
+              if (!exists) {
+                try {
+                  const response = await fetch(fileUrl, { method: 'HEAD' });
+                  if (response.ok) {
+                    exists = true;
+                    console.log(`   Legacy GCS URL accessible directly: true`);
+                  } else if (response.status === 403 || response.status === 401) {
+                    // Auth error - file might exist but we can't access it
+                    // Be conservative and assume it exists to prevent deletion
+                    exists = true;
+                    console.log(`   Legacy GCS URL returned ${response.status} - assuming exists`);
+                  } else {
+                    console.log(`   Legacy GCS URL returned ${response.status}`);
+                  }
+                } catch (e) {
+                  // Network error - be conservative, assume exists
+                  exists = true;
+                  console.log(`   Legacy GCS URL check failed, assuming exists: ${e}`);
+                }
+              }
+            } catch (e) {
+              // Object Storage check failed - assume exists to prevent deletion
+              exists = true;
+              console.log(`   Object Storage check failed, assuming exists: ${e}`);
             }
           } else {
             exists = await this.objectStorage.objectExists(normalizedUrl);
@@ -189,18 +211,35 @@ export class FileAssetResolver {
           break;
 
         case FileAssetType.OBJECT_STORAGE:
-          // For legacy GCS URLs, download from the ORIGINAL URL directly
+          // For legacy GCS URLs, try Object Storage first (file may have been migrated),
+          // then fall back to direct GCS URL download
           if (isLegacyGCS) {
-            console.log(`🌐 Downloading from legacy GCS URL: ${fileUrl}`);
-            const gcsResponse = await fetch(fileUrl, {
-              headers: { 'User-Agent': 'PersonalCreditPros/1.0' }
-            });
-            if (!gcsResponse.ok) {
-              throw new Error(`Failed to download from GCS: ${gcsResponse.statusText}`);
+            let downloaded = false;
+            
+            // First try Object Storage (normalized path)
+            try {
+              console.log(`☁️ Trying Object Storage for legacy GCS: ${normalizedUrl}`);
+              const buffer = await this.objectStorage.downloadToBuffer(normalizedUrl);
+              fs.writeFileSync(tempPath, buffer);
+              console.log(`☁️ Downloaded from Object Storage to temp: ${tempPath}`);
+              downloaded = true;
+            } catch (objError) {
+              console.log(`   Object Storage download failed: ${objError}`);
             }
-            const gcsBuffer = Buffer.from(await gcsResponse.arrayBuffer());
-            fs.writeFileSync(tempPath, gcsBuffer);
-            console.log(`🌐 Downloaded legacy GCS file to temp: ${tempPath}`);
+            
+            // Fallback: try direct GCS URL download
+            if (!downloaded) {
+              console.log(`🌐 Falling back to direct GCS URL: ${fileUrl}`);
+              const gcsResponse = await fetch(fileUrl, {
+                headers: { 'User-Agent': 'PersonalCreditPros/1.0' }
+              });
+              if (!gcsResponse.ok) {
+                throw new Error(`Failed to download from GCS (${gcsResponse.status}): ${gcsResponse.statusText}. File may require re-upload.`);
+              }
+              const gcsBuffer = Buffer.from(await gcsResponse.arrayBuffer());
+              fs.writeFileSync(tempPath, gcsBuffer);
+              console.log(`🌐 Downloaded legacy GCS file to temp: ${tempPath}`);
+            }
           } else {
             const buffer = await this.objectStorage.downloadToBuffer(normalizedUrl);
             fs.writeFileSync(tempPath, buffer);
