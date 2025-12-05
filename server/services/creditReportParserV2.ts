@@ -188,9 +188,8 @@ function buildUserPrompt(
   userId: string,
   existingReportId?: string
 ): string {
-  // GPT-5 supports 128k tokens (~500k chars). Credit reports are typically 40-80k chars.
-  // We use 150k char limit to safely fit within context while allowing room for system prompt and response
-  const MAX_TEXT_LENGTH = 150000;
+  // GPT-5 supports 128k tokens (~500k chars). Using 900k char limit for extra large reports.
+  const MAX_TEXT_LENGTH = 900000;
   const text = rawText.length > MAX_TEXT_LENGTH ? rawText.slice(0, MAX_TEXT_LENGTH) : rawText;
   
   console.log(`📄 Credit report text length: ${rawText.length} chars (using ${text.length} chars)`);
