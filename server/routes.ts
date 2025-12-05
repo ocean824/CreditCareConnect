@@ -1124,30 +1124,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Clean up orphaned credit reports (files that no longer exist on disk)
+  // Clean up orphaned credit reports (files that no longer exist)
+  // This uses FileAssetResolver to check all file types (local, Object Storage, remote URLs)
   app.post('/api/credit-reports/cleanup-orphaned', requireActiveSubscription, async (req: any, res) => {
     try {
       const userId = req.session.userId;
       const creditReports = await storage.getCreditReportsByUserId(userId);
-      const filesDir = process.env.FILES_DIR || "./files";
+      const { fileAssetResolver, FileAssetType } = await import('./fileAssetResolver');
       
       let deletedCount = 0;
       const deletedReports: string[] = [];
+      const checkedReports: any[] = [];
       
       for (const report of creditReports) {
-        if (report.fileUrl.startsWith('/files/')) {
-          const localFileName = path.basename(report.fileUrl);
-          const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-          const filePath = path.join(filesDir, sanitizedFileName);
+        try {
+          const assetInfo = await fileAssetResolver.getAssetInfo(report.fileUrl);
+          checkedReports.push({
+            id: report.id,
+            fileName: report.fileName,
+            fileUrl: report.fileUrl,
+            type: assetInfo.type,
+            normalizedUrl: assetInfo.normalizedUrl,
+            exists: assetInfo.exists
+          });
           
-          if (!fs.existsSync(filePath)) {
-            console.log(`🗑️  Deleting orphaned report: ${report.fileName} (file missing: ${filePath})`);
+          // Only delete if we can confirm the file doesn't exist
+          // For remote URLs that we can't check, skip deletion
+          if (!assetInfo.exists && assetInfo.type !== FileAssetType.REMOTE_URL && assetInfo.type !== FileAssetType.UNKNOWN) {
+            console.log(`🗑️  Deleting orphaned report: ${report.fileName} (file missing: ${assetInfo.normalizedUrl})`);
             await storage.deleteCreditReport(report.id);
             deletedReports.push(report.fileName);
             deletedCount++;
           }
+        } catch (checkError: any) {
+          console.error(`⚠️  Error checking file for report ${report.id}: ${checkError.message}`);
+          // Don't delete if we couldn't check - safer to keep the record
         }
       }
+      
+      console.log(`📋 Cleanup check: ${checkedReports.length} reports checked, ${deletedCount} deleted`);
       
       res.json({ 
         success: true,
@@ -1155,11 +1170,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? `Cleaned up ${deletedCount} orphaned report(s)` 
           : "No orphaned reports found",
         deletedCount,
-        deletedReports
+        deletedReports,
+        checkedReports
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error cleaning up orphaned reports:", error);
-      res.status(500).json({ message: "Failed to clean up orphaned reports" });
+      res.status(500).json({ message: "Failed to clean up orphaned reports: " + error.message });
     }
   });
 
@@ -1618,25 +1634,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       results.violationCount = violations.length;
       results.steps.push({ step: 'fetch_violations', status: 'ok', details: { count: violations.length } });
 
-      // Step 4: Test with first report if it has a local file
+      // Step 4: Test with first report - use FileAssetResolver to handle all file types
       const testReport = reports[0];
-      if (testReport.fileUrl.startsWith('/files/')) {
-        const localFileName = path.basename(testReport.fileUrl);
-        const sanitizedFileName = localFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const filesDir = process.env.FILES_DIR || "./files";
-        const filePath = path.join(filesDir, sanitizedFileName);
-        
-        results.fileCheck = { 
-          fileUrl: testReport.fileUrl, 
-          localPath: filePath, 
-          exists: fs.existsSync(filePath) 
-        };
-        results.steps.push({ step: 'file_check', status: results.fileCheck.exists ? 'ok' : 'error', details: results.fileCheck });
+      const { fileAssetResolver } = await import('./fileAssetResolver');
+      
+      const assetInfo = await fileAssetResolver.getAssetInfo(testReport.fileUrl);
+      results.fileCheck = { 
+        fileUrl: testReport.fileUrl, 
+        type: assetInfo.type,
+        normalizedUrl: assetInfo.normalizedUrl,
+        exists: assetInfo.exists 
+      };
+      results.steps.push({ step: 'file_check', status: assetInfo.exists ? 'ok' : 'error', details: results.fileCheck });
 
-        if (results.fileCheck.exists) {
+      if (assetInfo.exists) {
+        try {
+          // Step 5: Download to temp file and extract text
+          const { tempPath, cleanup } = await fileAssetResolver.downloadToTempFile(testReport.fileUrl);
+          
           try {
-            // Step 5: Extract text
-            const reportText = await ocrPdfOrImage(filePath);
+            const reportText = await ocrPdfOrImage(tempPath);
             results.textExtraction = { 
               success: true, 
               textLength: reportText.length,
@@ -1658,6 +1675,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 success: true,
                 tradelineCount: triMergeReport.tradelines?.length || 0,
                 collectionCount: triMergeReport.collections?.length || 0,
+                bureaus: triMergeReport.meta?.bureausIncluded || [],
+                sampleTradelines: (triMergeReport.tradelines || []).slice(0, 3).map((tl: any) => ({
+                  creditor: tl.creditorName,
+                  status: tl.status,
+                  balance: tl.balance
+                }))
               };
               results.steps.push({ step: 'ai_parsing', status: 'ok', details: results.aiParsing });
 
@@ -1669,6 +1692,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 bureauCount: parsedReport.bureaus.length,
                 totalTradelines: parsedReport.bureaus.reduce((sum: number, b: any) => sum + b.tradelines.length, 0),
                 totalCollections: parsedReport.bureaus.reduce((sum: number, b: any) => sum + b.collections.length, 0),
+                sampleTradelines: parsedReport.bureaus.flatMap((b: any) => b.tradelines.slice(0, 2).map((tl: any) => ({
+                  creditor: tl.creditorName,
+                  status: tl.status,
+                  balance: tl.balance
+                })))
               };
               results.steps.push({ step: 'legacy_conversion', status: 'ok', details: results.legacyConversion });
 
@@ -1677,11 +1705,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               results.rulesEngine = {
                 issuesFound: analysisResult.issues.length,
                 aiExplanationsCount: analysisResult.aiExplanations.length,
-                issues: analysisResult.issues.map(i => ({
+                issues: analysisResult.issues.slice(0, 10).map(i => ({
                   ruleId: i.ruleId,
                   category: i.category,
                   severity: i.severity,
-                  bureaus: i.affectedBureaus
+                  bureaus: i.affectedBureaus,
+                  description: i.descriptionMachine?.substring(0, 100)
                 }))
               };
               results.steps.push({ step: 'rules_engine', status: 'ok', details: results.rulesEngine });
@@ -1690,13 +1719,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               results.steps.push({ step: 'ai_parsing', status: 'error', error: parseError.message });
               results.errors.push({ stage: 'ai_parsing', error: parseError.message, stack: parseError.stack });
             }
-          } catch (extractError: any) {
-            results.steps.push({ step: 'text_extraction', status: 'error', error: extractError.message });
-            results.errors.push({ stage: 'text_extraction', error: extractError.message });
+          } finally {
+            cleanup(); // Always cleanup temp file
           }
+        } catch (extractError: any) {
+          results.steps.push({ step: 'text_extraction', status: 'error', error: extractError.message });
+          results.errors.push({ stage: 'text_extraction', error: extractError.message });
         }
-      } else {
-        results.steps.push({ step: 'file_check', status: 'skipped', details: 'Remote file URL' });
       }
 
       results.success = results.errors.length === 0;
