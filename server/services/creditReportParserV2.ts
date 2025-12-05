@@ -188,7 +188,12 @@ function buildUserPrompt(
   userId: string,
   existingReportId?: string
 ): string {
-  const snippet = rawText.length > 16000 ? rawText.slice(0, 16000) : rawText;
+  // GPT-5 supports 128k tokens (~500k chars). Credit reports are typically 40-80k chars.
+  // We use 150k char limit to safely fit within context while allowing room for system prompt and response
+  const MAX_TEXT_LENGTH = 150000;
+  const text = rawText.length > MAX_TEXT_LENGTH ? rawText.slice(0, MAX_TEXT_LENGTH) : rawText;
+  
+  console.log(`📄 Credit report text length: ${rawText.length} chars (using ${text.length} chars)`);
 
   return `Provider: ${provider}
 Bureau hint: ${bureauHint}
@@ -207,9 +212,9 @@ If bureauHint is a single bureau:
 - meta.bureausIncluded: [that bureau]
 - All items have bureaus/bureauSnapshots for only that one bureau
 
-RAW REPORT TEXT (POSSIBLY TRUNCATED):
+FULL CREDIT REPORT TEXT:
 
-"""${snippet}"""
+"""${text}"""
 
 Return ONLY a single JSON object matching TriMergeCreditReport. No explanations.`;
 }
@@ -321,10 +326,33 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
       })),
     };
 
-    console.log(`✅ Parsed report: ${report.tradelines.length} tradelines, ${report.collections.length} collections`);
+    console.log(`✅ Parsed report: ${report.tradelines.length} tradelines, ${report.collections.length} collections, ${report.publicRecords.length} public records, ${report.inquiries.length} inquiries`);
+    
+    // Log warning if no data found - this often indicates a parsing issue
+    if (report.tradelines.length === 0 && report.collections.length === 0) {
+      console.warn(`⚠️ WARNING: No tradelines or collections found in parsed report!`);
+      console.warn(`   Raw text length: ${rawText.length} chars`);
+      console.warn(`   Bureaus included: ${report.meta.bureausIncluded.join(', ')}`);
+      console.warn(`   This may indicate:`);
+      console.warn(`   - Text extraction failed (OCR quality issues)`);
+      console.warn(`   - AI parsing did not recognize the report format`);
+      console.warn(`   - Report may be empty or unsupported format`);
+    } else {
+      // Log sample tradeline info for debugging
+      if (report.tradelines.length > 0) {
+        const sample = report.tradelines[0];
+        console.log(`   Sample tradeline: ${sample.creditorName} | Status: ${sample.status} | Balance: ${sample.balance}`);
+      }
+      if (report.collections.length > 0) {
+        const sample = report.collections[0];
+        console.log(`   Sample collection: ${sample.collectorName} | Status: ${sample.status} | Balance: ${sample.balance}`);
+      }
+    }
+    
     return report;
   } catch (error: any) {
     console.error("❌ AI parsing failed:", error.message);
+    console.error("   Stack:", error.stack?.split('\n').slice(0, 3).join('\n'));
     return buildFallbackReport(userId, bureauHint, existingReportId);
   }
 }
