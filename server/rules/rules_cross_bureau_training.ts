@@ -374,6 +374,7 @@ function ruleR5DuplicateCollectionSameDebt(report: CreditReport): IssueFlag[] {
       accountNumberLast4: string;
       bureauAccountId: string;
       dofd: string;
+      openedDate: string;
     }
     
     const allCollections: CollectionEntry[] = [];
@@ -387,6 +388,7 @@ function ruleR5DuplicateCollectionSameDebt(report: CreditReport): IssueFlag[] {
         accountNumberLast4: (col.accountNumberMasked || '').slice(-4),
         bureauAccountId: (col.bureauAccountId || '').trim(),
         dofd: col.dateOfFirstDelinquency || '',
+        openedDate: col.openedDate || '',
       });
     }
     
@@ -425,9 +427,13 @@ function ruleR5DuplicateCollectionSameDebt(report: CreditReport): IssueFlag[] {
         
         const sameDOFD = !!(a.dofd && b2.dofd && a.dofd === b2.dofd);
         
+        const sameOpenedDate = !!(a.openedDate && b2.openedDate && a.openedDate === b2.openedDate);
+        
         const exactSameBalance = a.balance > 0 && a.balance === b2.balance;
         
         const hasNameMatch = sameCollector || sameOriginalCreditor;
+        
+        const hasBothNamesMatch = sameCollector && sameOriginalCreditor;
         
         const primaryPath = sameBureauAccountId && hasNameMatch && exactSameBalance;
         
@@ -435,7 +441,9 @@ function ruleR5DuplicateCollectionSameDebt(report: CreditReport): IssueFlag[] {
         
         const dofdPath = sameDOFD && hasNameMatch && exactSameBalance && !sameBureauAccountId && !sameAccountNumber;
         
-        const isDuplicate = primaryPath || accountNumberPath || dofdPath;
+        const openedDatePath = sameOpenedDate && hasBothNamesMatch && exactSameBalance && !sameBureauAccountId && !sameAccountNumber && !sameDOFD;
+        
+        const isDuplicate = primaryPath || accountNumberPath || dofdPath || openedDatePath;
         
         if (isDuplicate) {
           const dedupKey = [a.internalId, b2.internalId].sort().join(',');
@@ -468,11 +476,14 @@ function ruleR5DuplicateCollectionSameDebt(report: CreditReport): IssueFlag[] {
                   sameBureauAccountId,
                   sameAccountNumber,
                   sameDOFD,
+                  sameOpenedDate,
                   exactSameBalance,
                   hasNameMatch,
+                  hasBothNamesMatch,
                   matchedViaPrimaryPath: primaryPath,
                   matchedViaAccountNumberPath: accountNumberPath,
                   matchedViaDOFDPath: dofdPath,
+                  matchedViaOpenedDatePath: openedDatePath,
                 },
               },
             })
@@ -493,17 +504,29 @@ function ruleR6SoldAccountStillChargeoffStatus(report: CreditReport): IssueFlag[
       const balance = tl.balance ?? 0;
       const status = tl.status || '';
       const statusLower = status.toLowerCase();
+      const statusRaw = (tl.statusRaw || '').toLowerCase();
+      const remarksText = (tl.remarks || []).join(' ').toLowerCase();
       
-      const hasSoldIndicator = statusLower === 'sold' || 
-                               statusLower === 'transferred' ||
-                               statusLower.includes('sold') ||
-                               statusLower.includes('transferred');
+      const checkSold = (text: string) => 
+        text.includes('sold') || text.includes('transferred') || text.includes('purchased');
       
-      const hasChargeoffIndicator = statusLower === 'chargeoff' || 
-                                    statusLower === 'collection' ||
-                                    statusLower.includes('chargeoff') ||
-                                    statusLower.includes('charge-off') ||
-                                    statusLower.includes('charge off');
+      const checkChargeoff = (text: string) => 
+        text.includes('chargeoff') || text.includes('charge-off') || 
+        text.includes('charge off') || text.includes('collection');
+      
+      const hasSoldIndicator = 
+        statusLower === 'sold' || 
+        statusLower === 'transferred' ||
+        checkSold(statusLower) ||
+        checkSold(statusRaw) ||
+        checkSold(remarksText);
+      
+      const hasChargeoffIndicator = 
+        statusLower === 'chargeoff' || 
+        statusLower === 'collection' ||
+        checkChargeoff(statusLower) ||
+        checkChargeoff(statusRaw) ||
+        checkChargeoff(remarksText);
       
       const hasZeroBalance = balance === 0;
       
@@ -512,8 +535,8 @@ function ruleR6SoldAccountStillChargeoffStatus(report: CreditReport): IssueFlag[
       const isOriginalCreditorSoldWithZeroBalance = 
         tl.isOriginalCreditor === true && 
         hasZeroBalance && 
-        hasChargeoffIndicator &&
-        hasSoldIndicator;
+        hasSoldIndicator &&
+        (hasChargeoffIndicator || statusLower === 'sold' || statusLower === 'transferred');
       
       if (isSoldWithChargeoffStatus || isOriginalCreditorSoldWithZeroBalance) {
         issues.push(

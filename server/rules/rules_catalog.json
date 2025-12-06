@@ -48,7 +48,7 @@
     {
       "id": "R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT",
       "category": "FCRA",
-      "description": "Same collection debt is reported twice on the same bureau. Detection uses three paths: (1) bureauAccountId match, (2) account number match (4+ digits), or (3) DOFD match when account numbers are fully masked. All paths require name match (collector OR original creditor) plus identical balance.",
+      "description": "Same collection debt is reported twice on the same bureau. Detection uses four paths: (1) bureauAccountId match, (2) account number match (4+ digits), (3) DOFD match, or (4) openedDate match with both names matching. All paths require exact balance match.",
       "lawReferences": ["FCRA 15 U.S.C. § 1681e(b)"],
       "enabled": true,
       "appliesTo": ["COLLECTION"],

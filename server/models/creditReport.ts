@@ -83,6 +83,8 @@ export interface Tradeline {
   accountNumberMasked?: string;
   type: TradelineType;
   status: TradelineStatus;
+  statusRaw?: string;
+  remarks?: string[];
   isOriginalCreditor?: boolean;
   openedDate?: string;
   closedDate?: string;
