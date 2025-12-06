@@ -975,6 +975,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let parsedReport;
         try {
           console.log(`🤖 Parsing credit report with AI (tri-merge enabled)...`);
+          console.log(`📄 Raw text length: ${reportText.length} characters`);
+          console.log(`📄 Text sample (first 500 chars): ${reportText.slice(0, 500).replace(/\n/g, ' ')}`);
+          
           const { parseCreditReportWithAiOnly } = await import('./services/creditReportParserV2');
           const triMergeReport = await parseCreditReportWithAiOnly({
             rawText: reportText,
@@ -983,16 +986,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
             userId: userId,
           });
           
+          // CRITICAL: Log what the AI parser returned BEFORE conversion
+          console.log(`📊 [AI PARSER OUTPUT] tradelines: ${triMergeReport.tradelines.length}, collections: ${triMergeReport.collections.length}`);
+          console.log(`📊 [AI PARSER OUTPUT] bureausIncluded: ${triMergeReport.meta.bureausIncluded.join(', ')}`);
+          
+          if (triMergeReport.tradelines.length > 0) {
+            const sample = triMergeReport.tradelines[0];
+            console.log(`📊 [AI PARSER OUTPUT] Sample tradeline: ${sample.creditorName}, bureaus: ${JSON.stringify(sample.bureaus)}, snapshots: ${sample.bureauSnapshots?.length || 0}`);
+          }
+          if (triMergeReport.collections.length > 0) {
+            const sample = triMergeReport.collections[0];
+            console.log(`📊 [AI PARSER OUTPUT] Sample collection: ${sample.collectorName}, bureaus: ${JSON.stringify(sample.bureaus)}, snapshots: ${sample.bureauSnapshots?.length || 0}`);
+          }
+          
           // Convert tri-merge format to legacy format for compatibility
           const { convertTriMergeToLegacy } = await import('./services/convertTriMergeToLegacy');
           parsedReport = convertTriMergeToLegacy(triMergeReport);
           
-          // Log parsing results
+          // Log parsing results AFTER conversion
           const bureauCount = parsedReport.bureaus.length;
           const tradelineCount = parsedReport.bureaus.reduce((sum, b) => sum + b.tradelines.length, 0);
           const collectionCount = parsedReport.bureaus.reduce((sum, b) => sum + b.collections.length, 0);
-          console.log(`✅ Successfully parsed credit report:`);
-            console.log(`   📊 Bureaus: ${bureauCount}, Tradelines: ${tradelineCount}, Collections: ${collectionCount}`);
+          console.log(`✅ Successfully parsed and converted credit report:`);
+          console.log(`   📊 After conversion: Bureaus: ${bureauCount}, Tradelines: ${tradelineCount}, Collections: ${collectionCount}`);
+          
+          // CRITICAL: Warn if AI returned data but conversion produced nothing
+          if ((triMergeReport.tradelines.length > 0 || triMergeReport.collections.length > 0) && 
+              (tradelineCount === 0 && collectionCount === 0)) {
+            console.error(`❌ CRITICAL: AI parser returned data but conversion produced ZERO accounts!`);
+            console.error(`   This indicates a bug in convertTriMergeToLegacy`);
+          }
         } catch (parseError: any) {
           console.error(`❌ Parsing failed:`, parseError.message);
           throw new Error(`Failed to parse credit report: ${parseError.message}`);
@@ -1475,9 +1498,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         console.log(`🧮 AI parse result - tradelines: ${triMergeReport?.tradelines?.length || 0}, collections: ${triMergeReport?.collections?.length || 0}`);
         console.log(`   Bureaus included: ${triMergeReport?.meta?.bureausIncluded?.join(', ') || 'none'}`);
-        if (triMergeReport?.tradelines?.slice(0, 3)) {
+        
+        // Log sample data from AI parser
+        if (triMergeReport?.tradelines?.length > 0) {
           for (const tl of triMergeReport.tradelines.slice(0, 3)) {
-            console.log(`   📊 Tradeline: ${tl.creditorName} - Status: ${tl.status} - Bureaus: ${tl.bureaus?.join(',')}`);
+            console.log(`   📊 Tradeline: ${tl.creditorName} - Status: ${tl.status} - Bureaus: ${JSON.stringify(tl.bureaus)} - Snapshots: ${tl.bureauSnapshots?.length || 0}`);
+            if (tl.bureauSnapshots?.length > 0) {
+              console.log(`      Snapshot bureaus: ${tl.bureauSnapshots.map((s: any) => s.bureau).join(', ')}`);
+            }
+          }
+        }
+        if (triMergeReport?.collections?.length > 0) {
+          for (const col of triMergeReport.collections.slice(0, 3)) {
+            console.log(`   🚨 Collection: ${col.collectorName} - Status: ${col.status} - Bureaus: ${JSON.stringify(col.bureaus)} - Snapshots: ${col.bureauSnapshots?.length || 0}`);
+            if (col.bureauSnapshots?.length > 0) {
+              console.log(`      Snapshot bureaus: ${col.bureauSnapshots.map((s: any) => s.bureau).join(', ')}`);
+            }
           }
         }
         
@@ -1489,6 +1525,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const tradelineCount = parsedReport.bureaus.reduce((sum: number, b: any) => sum + b.tradelines.length, 0);
         const collectionCount = parsedReport.bureaus.reduce((sum: number, b: any) => sum + b.collections.length, 0);
         console.log(`✅ Legacy format: ${bureauCount} bureaus, ${tradelineCount} tradelines, ${collectionCount} collections`);
+        
+        // CRITICAL: Warn if AI returned data but conversion produced nothing
+        if ((triMergeReport.tradelines.length > 0 || triMergeReport.collections.length > 0) && 
+            (tradelineCount === 0 && collectionCount === 0)) {
+          console.error(`❌ CRITICAL: AI parser returned data but conversion produced ZERO accounts!`);
+          console.error(`   This indicates a bug in convertTriMergeToLegacy`);
+        }
         
         // Run analysis
         console.log(`🔬 Running rules engine analysis...`);
