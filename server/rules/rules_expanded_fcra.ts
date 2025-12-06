@@ -1,6 +1,6 @@
 import type { CreditReport } from '../models/creditReport';
-import type { IssueFlag, StatuteRef } from '../models/issues';
-import { createIssueFlag } from './utils';
+import type { IssueFlag } from '../models/issues';
+import { createIssueFlag, parseIsoDate } from './utils';
 
 export function runExpandedFCRARules(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
@@ -41,8 +41,8 @@ function ruleFCRA611aDisputeNotNoted(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      const statusStr = typeof tl.status === 'string' ? tl.status : '';
-      if (statusStr.toLowerCase().includes('disputed') && !tl.remarks?.some(r => r?.toLowerCase().includes('dispute'))) {
+      const statusRaw = tl.statusRaw ?? '';
+      if (statusRaw.toLowerCase().includes('disputed') && !tl.remarks?.some(r => r?.toLowerCase().includes('dispute'))) {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_611A_DISPUTE_NOT_NOTED',
           family: 'FCRA_EXPANDED',
@@ -66,8 +66,7 @@ function ruleFCRA605cDisputeInProgress(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const col of bureau.collections) {
-      const statusStr = col.status || '';
-      if (statusStr.toLowerCase().includes('open')) {
+      if (col.status === 'Open') {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_605C_COLLECTION_DISPUTABLE',
           family: 'FCRA_EXPANDED',
@@ -77,7 +76,7 @@ function ruleFCRA605cDisputeInProgress(report: CreditReport): IssueFlag[] {
           affectedEntityType: 'Collection',
           affectedBureaus: [bureau.bureau],
           affectedIds: [col.internalId],
-          descriptionMachine: `Collection ${col.collectorName} for ${col.originalCreditorName || 'unknown creditor'} is an open collection eligible for dispute`,
+          descriptionMachine: `Collection ${col.collectorName} for ${col.originalCreditorName ?? 'unknown creditor'} is an open collection eligible for dispute`,
           explanationKey: 'FCRA_605C_COLLECTION_DISPUTABLE',
           details: { bureau: bureau.bureau, collectorName: col.collectorName }
         }));
@@ -91,7 +90,7 @@ function ruleFCRA623aInaccurateInfo(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      if (tl.balance !== undefined && tl.balance < 0) {
+      if (typeof tl.balance === 'number' && tl.balance < 0) {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_623A_NEGATIVE_BALANCE',
           family: 'FCRA_EXPANDED',
@@ -106,7 +105,7 @@ function ruleFCRA623aInaccurateInfo(report: CreditReport): IssueFlag[] {
           details: { bureau: bureau.bureau, balance: tl.balance }
         }));
       }
-      if (tl.creditLimit && tl.balance && tl.balance > tl.creditLimit * 2) {
+      if (typeof tl.creditLimit === 'number' && typeof tl.balance === 'number' && tl.creditLimit > 0 && tl.balance > tl.creditLimit * 2) {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_623A_BALANCE_EXCEEDS_LIMIT',
           family: 'FCRA_EXPANDED',
@@ -181,8 +180,9 @@ function ruleFCRA605Obsolete(report: CreditReport): IssueFlag[] {
   
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      const dofd = tl.dateOfFirstDelinquency ? new Date(tl.dateOfFirstDelinquency) : null;
-      if (dofd && dofd < sevenYearsAgo && (tl.status === 'Delinquent' || tl.status === 'Late30' || tl.status === 'Late60' || tl.status === 'Late90')) {
+      const dofd = parseIsoDate(tl.dateOfFirstDelinquency);
+      const isDelinquent = tl.status === 'Delinquent' || tl.status === 'Late30' || tl.status === 'Late60' || tl.status === 'Late90' || tl.status === 'Late120' || tl.status === 'Late150Plus';
+      if (dofd && dofd < sevenYearsAgo && isDelinquent) {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_605A_OBSOLETE_DELINQUENCY',
           family: 'FCRA_EXPANDED',
@@ -199,7 +199,7 @@ function ruleFCRA605Obsolete(report: CreditReport): IssueFlag[] {
       }
     }
     for (const col of bureau.collections) {
-      const dofd = col.dateOfFirstDelinquency ? new Date(col.dateOfFirstDelinquency) : null;
+      const dofd = parseIsoDate(col.dateOfFirstDelinquency);
       if (dofd && dofd < sevenYearsAgo) {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_605A_OBSOLETE_COLLECTION',
@@ -248,7 +248,7 @@ function ruleFCRA615AdverseAction(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const inquiry of bureau.inquiries) {
-      if (!inquiry.inquirerName) {
+      if (!inquiry.inquirerName && inquiry.type === 'Hard') {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_615_INQUIRY_NO_CREDITOR',
           family: 'FCRA_EXPANDED',
@@ -337,7 +337,7 @@ function ruleBalanceAccuracy(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      if (tl.status === 'Paid' && tl.balance && tl.balance > 0) {
+      if (tl.status === 'Paid' && typeof tl.balance === 'number' && tl.balance > 0) {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_PAID_WITH_BALANCE',
           family: 'FCRA_EXPANDED',
@@ -352,7 +352,7 @@ function ruleBalanceAccuracy(report: CreditReport): IssueFlag[] {
           details: { bureau: bureau.bureau, balance: tl.balance }
         }));
       }
-      if (tl.status === 'Closed' && tl.balance && tl.balance > 0) {
+      if (tl.status === 'Closed' && typeof tl.balance === 'number' && tl.balance > 0) {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_CLOSED_WITH_BALANCE',
           family: 'FCRA_EXPANDED',
@@ -376,7 +376,7 @@ function ruleCreditLimitReporting(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      if (tl.type === 'CreditCard' && !tl.creditLimit) {
+      if (tl.type === 'CreditCard' && typeof tl.creditLimit !== 'number') {
         issues.push(createIssueFlag({
           ruleId: 'METRO2_MISSING_CREDIT_LIMIT',
           family: 'FCRA_EXPANDED',
@@ -402,7 +402,8 @@ function rulePaymentStatusConsistency(report: CreditReport): IssueFlag[] {
     for (const tl of bureau.tradelines) {
       if (tl.paymentHistory && tl.paymentHistory.length > 0) {
         const lastPayment = tl.paymentHistory[tl.paymentHistory.length - 1];
-        if (lastPayment.status === 'OK' && (tl.status === 'Late30' || tl.status === 'Late60' || tl.status === 'Late90' || tl.status === 'Delinquent')) {
+        const isDelinquentStatus = tl.status === 'Late30' || tl.status === 'Late60' || tl.status === 'Late90' || tl.status === 'Late120' || tl.status === 'Late150Plus' || tl.status === 'Delinquent';
+        if (lastPayment.status === 'OK' && isDelinquentStatus) {
           issues.push(createIssueFlag({
             ruleId: 'FCRA_PAYMENT_STATUS_CONFLICT',
             family: 'FCRA_EXPANDED',
@@ -429,60 +430,55 @@ function ruleDateReportingAccuracy(report: CreditReport): IssueFlag[] {
   
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      if (tl.openedDate) {
-        const opened = new Date(tl.openedDate);
-        if (opened > today) {
-          issues.push(createIssueFlag({
-            ruleId: 'FCRA_FUTURE_DATE_OPENED',
-            family: 'FCRA_EXPANDED',
-            category: 'Account Accuracy',
-            severity: 'HIGH',
-            statutes: ['FCRA_623a1'],
-            affectedEntityType: 'Tradeline',
-            affectedBureaus: [bureau.bureau],
-            affectedIds: [tl.internalId],
-            descriptionMachine: `Account ${tl.creditorName} has impossible future date opened: ${tl.openedDate}`,
-            explanationKey: 'FCRA_FUTURE_DATE_OPENED',
-            details: { bureau: bureau.bureau, openedDate: tl.openedDate }
-          }));
-        }
+      const opened = parseIsoDate(tl.openedDate);
+      if (opened && opened > today) {
+        issues.push(createIssueFlag({
+          ruleId: 'FCRA_FUTURE_DATE_OPENED',
+          family: 'FCRA_EXPANDED',
+          category: 'Account Accuracy',
+          severity: 'HIGH',
+          statutes: ['FCRA_623a1'],
+          affectedEntityType: 'Tradeline',
+          affectedBureaus: [bureau.bureau],
+          affectedIds: [tl.internalId],
+          descriptionMachine: `Account ${tl.creditorName} has impossible future date opened: ${tl.openedDate}`,
+          explanationKey: 'FCRA_FUTURE_DATE_OPENED',
+          details: { bureau: bureau.bureau, openedDate: tl.openedDate }
+        }));
       }
-      if (tl.closedDate && tl.openedDate) {
-        const opened = new Date(tl.openedDate);
-        const closed = new Date(tl.closedDate);
-        if (closed < opened) {
-          issues.push(createIssueFlag({
-            ruleId: 'FCRA_CLOSED_BEFORE_OPENED',
-            family: 'FCRA_EXPANDED',
-            category: 'Account Accuracy',
-            severity: 'HIGH',
-            statutes: ['FCRA_623a1'],
-            affectedEntityType: 'Tradeline',
-            affectedBureaus: [bureau.bureau],
-            affectedIds: [tl.internalId],
-            descriptionMachine: `Account ${tl.creditorName} closed ${tl.closedDate} before opened ${tl.openedDate}`,
-            explanationKey: 'FCRA_CLOSED_BEFORE_OPENED',
-            details: { bureau: bureau.bureau, openedDate: tl.openedDate, closedDate: tl.closedDate }
-          }));
-        }
+      
+      const closed = parseIsoDate(tl.closedDate);
+      if (opened && closed && closed < opened) {
+        issues.push(createIssueFlag({
+          ruleId: 'FCRA_CLOSED_BEFORE_OPENED',
+          family: 'FCRA_EXPANDED',
+          category: 'Account Accuracy',
+          severity: 'HIGH',
+          statutes: ['FCRA_623a1'],
+          affectedEntityType: 'Tradeline',
+          affectedBureaus: [bureau.bureau],
+          affectedIds: [tl.internalId],
+          descriptionMachine: `Account ${tl.creditorName} closed ${tl.closedDate} before opened ${tl.openedDate}`,
+          explanationKey: 'FCRA_CLOSED_BEFORE_OPENED',
+          details: { bureau: bureau.bureau, openedDate: tl.openedDate, closedDate: tl.closedDate }
+        }));
       }
-      if (tl.lastUpdatedDate) {
-        const lastUpdated = new Date(tl.lastUpdatedDate);
-        if (lastUpdated > today) {
-          issues.push(createIssueFlag({
-            ruleId: 'FCRA_FUTURE_LAST_UPDATED',
-            family: 'FCRA_EXPANDED',
-            category: 'Account Accuracy',
-            severity: 'HIGH',
-            statutes: ['FCRA_623a1'],
-            affectedEntityType: 'Tradeline',
-            affectedBureaus: [bureau.bureau],
-            affectedIds: [tl.internalId],
-            descriptionMachine: `Account ${tl.creditorName} has impossible future last updated date: ${tl.lastUpdatedDate}`,
-            explanationKey: 'FCRA_FUTURE_LAST_UPDATED',
-            details: { bureau: bureau.bureau, lastUpdatedDate: tl.lastUpdatedDate }
-          }));
-        }
+      
+      const lastUpdated = parseIsoDate(tl.lastUpdatedDate);
+      if (lastUpdated && lastUpdated > today) {
+        issues.push(createIssueFlag({
+          ruleId: 'FCRA_FUTURE_LAST_UPDATED',
+          family: 'FCRA_EXPANDED',
+          category: 'Account Accuracy',
+          severity: 'HIGH',
+          statutes: ['FCRA_623a1'],
+          affectedEntityType: 'Tradeline',
+          affectedBureaus: [bureau.bureau],
+          affectedIds: [tl.internalId],
+          descriptionMachine: `Account ${tl.creditorName} has impossible future last updated date: ${tl.lastUpdatedDate}`,
+          explanationKey: 'FCRA_FUTURE_LAST_UPDATED',
+          details: { bureau: bureau.bureau, lastUpdatedDate: tl.lastUpdatedDate }
+        }));
       }
     }
   }
@@ -493,7 +489,7 @@ function ruleHighCreditAccuracy(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      if (tl.highCreditLimit && tl.creditLimit && tl.highCreditLimit > tl.creditLimit * 1.5) {
+      if (typeof tl.highCreditLimit === 'number' && typeof tl.creditLimit === 'number' && tl.creditLimit > 0 && tl.highCreditLimit > tl.creditLimit * 1.5) {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_HIGH_CREDIT_EXCEEDS_LIMIT',
           family: 'FCRA_EXPANDED',
@@ -517,8 +513,9 @@ function rulePastDueAmountValidation(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      if (tl.pastDueAmount && tl.pastDueAmount > 0) {
-        if (tl.status === 'Open' && !tl.paymentHistory?.some(p => p.status !== 'OK')) {
+      if (typeof tl.pastDueAmount === 'number' && tl.pastDueAmount > 0) {
+        const hasNoDelinquentPayments = !tl.paymentHistory?.some(p => p.status !== 'OK');
+        if (tl.status === 'Open' && hasNoDelinquentPayments) {
           issues.push(createIssueFlag({
             ruleId: 'FCRA_CURRENT_WITH_PAST_DUE',
             family: 'FCRA_EXPANDED',
@@ -533,7 +530,8 @@ function rulePastDueAmountValidation(report: CreditReport): IssueFlag[] {
             details: { bureau: bureau.bureau, pastDueAmount: tl.pastDueAmount }
           }));
         }
-        if (tl.pastDueAmount > (tl.balance || 0)) {
+        const balance = tl.balance ?? 0;
+        if (tl.pastDueAmount > balance) {
           issues.push(createIssueFlag({
             ruleId: 'FCRA_PAST_DUE_EXCEEDS_BALANCE',
             family: 'FCRA_EXPANDED',
@@ -543,9 +541,9 @@ function rulePastDueAmountValidation(report: CreditReport): IssueFlag[] {
             affectedEntityType: 'Tradeline',
             affectedBureaus: [bureau.bureau],
             affectedIds: [tl.internalId],
-            descriptionMachine: `Account ${tl.creditorName} past due $${tl.pastDueAmount} exceeds balance $${tl.balance}`,
+            descriptionMachine: `Account ${tl.creditorName} past due $${tl.pastDueAmount} exceeds balance $${balance}`,
             explanationKey: 'FCRA_PAST_DUE_EXCEEDS_BALANCE',
-            details: { bureau: bureau.bureau, pastDueAmount: tl.pastDueAmount, balance: tl.balance }
+            details: { bureau: bureau.bureau, pastDueAmount: tl.pastDueAmount, balance }
           }));
         }
       }
@@ -582,7 +580,8 @@ function ruleSpecialCommentCodes(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      if (tl.statusRaw?.toLowerCase().includes('settled') && !tl.remarks?.some(r => r?.toLowerCase().includes('settled'))) {
+      const statusRaw = tl.statusRaw ?? '';
+      if (statusRaw.toLowerCase().includes('settled') && !tl.remarks?.some(r => r?.toLowerCase().includes('settled'))) {
         issues.push(createIssueFlag({
           ruleId: 'METRO2_SETTLED_NO_COMMENT',
           family: 'FCRA_EXPANDED',
@@ -606,7 +605,8 @@ function ruleComplianceConditionCodes(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      if (tl.forbearanceFlag && (tl.status === 'Late30' || tl.status === 'Late60' || tl.status === 'Late90' || tl.status === 'Delinquent')) {
+      const isDelinquent = tl.status === 'Late30' || tl.status === 'Late60' || tl.status === 'Late90' || tl.status === 'Late120' || tl.status === 'Late150Plus' || tl.status === 'Delinquent';
+      if (tl.forbearanceFlag && isDelinquent) {
         issues.push(createIssueFlag({
           ruleId: 'METRO2_FORBEARANCE_DELINQUENT',
           family: 'FCRA_EXPANDED',
@@ -630,8 +630,8 @@ function ruleConsumerStatementRights(report: CreditReport): IssueFlag[] {
   const issues: IssueFlag[] = [];
   for (const bureau of report.bureaus) {
     for (const tl of bureau.tradelines) {
-      const statusStr = typeof tl.status === 'string' ? tl.status : '';
-      if (statusStr.toLowerCase().includes('disputed') && !tl.remarks?.some(r => r?.toLowerCase().includes('consumer'))) {
+      const statusRaw = tl.statusRaw ?? '';
+      if (statusRaw.toLowerCase().includes('disputed') && !tl.remarks?.some(r => r?.toLowerCase().includes('consumer'))) {
         issues.push(createIssueFlag({
           ruleId: 'FCRA_611C_CONSUMER_STATEMENT',
           family: 'FCRA_EXPANDED',
@@ -658,8 +658,9 @@ function rulePaymentHistoryGaps(report: CreditReport): IssueFlag[] {
       if (tl.paymentHistory && tl.paymentHistory.length > 2) {
         const months = tl.paymentHistory.map(p => p.month).sort();
         for (let i = 1; i < months.length; i++) {
-          const prev = new Date(months[i-1] + '-01');
-          const curr = new Date(months[i] + '-01');
+          const prev = parseIsoDate(months[i-1] + '-01');
+          const curr = parseIsoDate(months[i] + '-01');
+          if (!prev || !curr) continue;
           const diffMonths = (curr.getFullYear() - prev.getFullYear()) * 12 + (curr.getMonth() - prev.getMonth());
           if (diffMonths > 2) {
             issues.push(createIssueFlag({
@@ -735,7 +736,7 @@ function ruleMetro2StatusCodeViolations(report: CreditReport): IssueFlag[] {
             details: { bureau: bureau.bureau, creditorName: tl.creditorName }
           }));
         }
-        if (tl.metro2.accountStatusCode === '97' && tl.balance && tl.balance > 0) {
+        if (tl.metro2.accountStatusCode === '97' && typeof tl.balance === 'number' && tl.balance > 0) {
           issues.push(createIssueFlag({
             ruleId: 'METRO2_UNPAID_BALANCE_STATUS',
             family: 'FCRA_EXPANDED',
@@ -785,7 +786,7 @@ function ruleMedicalDebtReporting(report: CreditReport): IssueFlag[] {
   for (const bureau of report.bureaus) {
     for (const col of bureau.collections) {
       if (col.isMedical) {
-        if (col.balance && col.balance < 500) {
+        if (typeof col.balance === 'number' && col.balance > 0 && col.balance < 500) {
           issues.push(createIssueFlag({
             ruleId: 'FCRA_MEDICAL_DEBT_UNDER_500',
             family: 'FCRA_EXPANDED',
@@ -800,8 +801,8 @@ function ruleMedicalDebtReporting(report: CreditReport): IssueFlag[] {
             details: { bureau: bureau.bureau, balance: col.balance }
           }));
         }
-        if (col.openedDate) {
-          const opened = new Date(col.openedDate);
+        const opened = parseIsoDate(col.openedDate);
+        if (opened) {
           const oneYearAgo = new Date();
           oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
           if (opened > oneYearAgo) {
