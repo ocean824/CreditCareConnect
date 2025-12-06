@@ -218,6 +218,89 @@ FULL CREDIT REPORT TEXT:
 Return ONLY a single JSON object matching TriMergeCreditReport. No explanations.`;
 }
 
+async function parseWithRetry(
+  rawText: string,
+  bureauHint: BureauCode,
+  provider: string,
+  userId: string,
+  reportId: string,
+  isRetry: boolean = false
+): Promise<any> {
+  if (!openai) {
+    throw new Error("OpenAI not configured");
+  }
+  
+  const userPrompt = isRetry 
+    ? buildRetryPrompt(rawText, bureauHint, provider, userId, reportId)
+    : buildUserPrompt(rawText, bureauHint, provider, userId, reportId);
+
+  console.log(`🤖 Parsing ${bureauHint} report with AI${isRetry ? ' (RETRY with enhanced prompt)' : ''}...`);
+
+  const response = await openai.chat.completions.create({
+    model: OPENAI_MODEL,
+    messages: [
+      {
+        role: "system",
+        content: SYSTEM_PROMPT,
+      },
+      {
+        role: "user",
+        content: userPrompt,
+      },
+    ],
+    response_format: { type: "json_object" },
+    max_completion_tokens: 8192,
+  });
+
+  return JSON.parse(response.choices[0].message.content || "{}");
+}
+
+function buildRetryPrompt(
+  rawText: string,
+  bureauHint: BureauCode,
+  provider: string,
+  userId: string,
+  reportId: string
+): string {
+  const MAX_TEXT_LENGTH = 900000;
+  const text = rawText.length > MAX_TEXT_LENGTH ? rawText.slice(0, MAX_TEXT_LENGTH) : rawText;
+  
+  console.log(`📄 [RETRY] Credit report text length: ${rawText.length} chars`);
+
+  return `CRITICAL RETRY - Previous parse returned 0 accounts. This is a credit report that MUST contain tradelines and/or collections.
+
+Provider: ${provider}
+Bureau hint: ${bureauHint}
+User ID: ${userId}
+Report ID: ${reportId}
+
+IMPORTANT INSTRUCTIONS FOR RETRY:
+1. This is an IdentityIQ tri-merge credit report PDF that was OCR'd
+2. Look for ANY accounts, debts, loans, credit cards, collections, charge-offs
+3. Common section headers: "Accounts", "Trade Lines", "Collections", "Negative Items", "Credit Summary"
+4. Look for creditor/collector names like: Capital One, Chase, Discover, Midland Credit, Portfolio Recovery
+5. Extract balances (even if $0), account statuses, and dates
+6. If you find ANY financial accounts, include them as tradelines
+7. If you find ANY collection agencies or debt collectors, include them as collections
+8. For bureauSnapshots: if an account appears under "Equifax" section, add a snapshot for EQUIFAX bureau
+
+COMMON PATTERNS IN IDENTITYIQ REPORTS:
+- "EXPERIAN" / "EQUIFAX" / "TRANSUNION" section headers
+- Account Name: [creditor name]
+- Status: Open/Closed/Collection/Charge-off
+- Balance: $X,XXX or $0
+- Date Opened: MM/DD/YYYY
+- Last Payment: MM/DD/YYYY
+
+Even if data quality is poor, return whatever accounts you can find. Empty tradelines/collections arrays is NOT acceptable for a real credit report.
+
+FULL CREDIT REPORT TEXT:
+
+"""${text}"""
+
+Return ONLY a single JSON object matching TriMergeCreditReport with ALL accounts found. No explanations.`;
+}
+
 export async function parseCreditReportWithAiOnly(params: ParseCreditReportParams): Promise<TriMergeCreditReport> {
   const { rawText, bureauHint, provider = "IDENTITYIQ", userId, existingReportId } = params;
 
@@ -228,28 +311,28 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
 
   try {
     const reportId = existingReportId || nanoid();
-    const userPrompt = buildUserPrompt(rawText, bureauHint, provider, userId, reportId);
 
-    console.log(`🤖 Parsing ${bureauHint} report with AI...`);
-
-    // Note: GPT-5 does not support temperature parameter - only default (1) is allowed
-    const response = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: userPrompt,
-        },
-      ],
-      response_format: { type: "json_object" },
-      max_completion_tokens: 8192,
-    });
-
-    const parsed = JSON.parse(response.choices[0].message.content || "{}");
+    // First attempt with standard prompt
+    let parsed = await parseWithRetry(rawText, bureauHint, provider, userId, reportId, false);
+    
+    // Check if we got zero results - if so, retry with enhanced prompt
+    const tradelineCount = (parsed.tradelines || []).length;
+    const collectionCount = (parsed.collections || []).length;
+    
+    if (tradelineCount === 0 && collectionCount === 0 && rawText.length > 1000) {
+      console.warn(`⚠️ First parse returned 0 accounts but text has ${rawText.length} chars - retrying with enhanced prompt`);
+      parsed = await parseWithRetry(rawText, bureauHint, provider, userId, reportId, true);
+      
+      const retryTradelineCount = (parsed.tradelines || []).length;
+      const retryCollectionCount = (parsed.collections || []).length;
+      
+      if (retryTradelineCount === 0 && retryCollectionCount === 0) {
+        console.error(`❌ RETRY ALSO FAILED - Still 0 accounts. OCR text may be corrupted.`);
+        console.error(`   First 1000 chars of OCR text: ${rawText.substring(0, 1000)}`);
+      } else {
+        console.log(`✅ RETRY SUCCEEDED - Found ${retryTradelineCount} tradelines, ${retryCollectionCount} collections`);
+      }
+    }
 
     // Validate and normalize the parsed report
     const report: TriMergeCreditReport = {
@@ -327,25 +410,14 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
 
     console.log(`✅ Parsed report: ${report.tradelines.length} tradelines, ${report.collections.length} collections, ${report.publicRecords.length} public records, ${report.inquiries.length} inquiries`);
     
-    // Log warning if no data found - this often indicates a parsing issue
-    if (report.tradelines.length === 0 && report.collections.length === 0) {
-      console.warn(`⚠️ WARNING: No tradelines or collections found in parsed report!`);
-      console.warn(`   Raw text length: ${rawText.length} chars`);
-      console.warn(`   Bureaus included: ${report.meta.bureausIncluded.join(', ')}`);
-      console.warn(`   This may indicate:`);
-      console.warn(`   - Text extraction failed (OCR quality issues)`);
-      console.warn(`   - AI parsing did not recognize the report format`);
-      console.warn(`   - Report may be empty or unsupported format`);
-    } else {
-      // Log sample tradeline info for debugging
-      if (report.tradelines.length > 0) {
-        const sample = report.tradelines[0];
-        console.log(`   Sample tradeline: ${sample.creditorName} | Status: ${sample.status} | Balance: ${sample.balance}`);
-      }
-      if (report.collections.length > 0) {
-        const sample = report.collections[0];
-        console.log(`   Sample collection: ${sample.collectorName} | Status: ${sample.status} | Balance: ${sample.balance}`);
-      }
+    // Log sample tradeline info for debugging
+    if (report.tradelines.length > 0) {
+      const sample = report.tradelines[0];
+      console.log(`   Sample tradeline: ${sample.creditorName} | Status: ${sample.status} | Balance: ${sample.balance}`);
+    }
+    if (report.collections.length > 0) {
+      const sample = report.collections[0];
+      console.log(`   Sample collection: ${sample.collectorName} | Status: ${sample.status} | Balance: ${sample.balance}`);
     }
     
     return report;
