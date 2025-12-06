@@ -48,9 +48,15 @@ export interface IStorage {
   
   // Credit Report operations
   createCreditReport(report: InsertCreditReport): Promise<CreditReport>;
-  getCreditReportsByUserId(userId: string): Promise<CreditReport[]>;
-  updateCreditReportAnalysis(id: string, analysisResults: any, status: string): Promise<CreditReport>;
+  getCreditReportById(id: string): Promise<CreditReport | undefined>;
+  getCreditReportsByUserId(userId: string, includeDeleted?: boolean): Promise<CreditReport[]>;
+  updateCreditReportAnalysis(id: string, analysisResults: any, status: string, analysisNumber?: number): Promise<CreditReport>;
   deleteCreditReport(id: string): Promise<void>;
+  softDeleteCreditReport(id: string): Promise<CreditReport>;
+  restoreCreditReport(id: string): Promise<CreditReport>;
+  getNextAnalysisNumber(userId: string): Promise<number>;
+  updateCreditReportRetention(id: string, retainAnalysis: boolean): Promise<CreditReport>;
+  clearLastAnalysis(userId: string): Promise<void>;
   
   // Violations operations
   createViolation(violation: InsertViolation): Promise<Violation>;
@@ -190,21 +196,40 @@ export class DatabaseStorage implements IStorage {
     return creditReport;
   }
 
-  async getCreditReportsByUserId(userId: string): Promise<CreditReport[]> {
+  async getCreditReportById(id: string): Promise<CreditReport | undefined> {
+    const [report] = await db.select().from(creditReports).where(eq(creditReports.id, id));
+    return report;
+  }
+
+  async getCreditReportsByUserId(userId: string, includeDeleted: boolean = false): Promise<CreditReport[]> {
+    if (includeDeleted) {
+      return await db
+        .select()
+        .from(creditReports)
+        .where(eq(creditReports.userId, userId))
+        .orderBy(desc(creditReports.createdAt));
+    }
     return await db
       .select()
       .from(creditReports)
-      .where(eq(creditReports.userId, userId))
+      .where(and(
+        eq(creditReports.userId, userId),
+        eq(creditReports.isDeleted, false)
+      ))
       .orderBy(desc(creditReports.createdAt));
   }
 
-  async updateCreditReportAnalysis(id: string, analysisResults: any, status: string): Promise<CreditReport> {
+  async updateCreditReportAnalysis(id: string, analysisResults: any, status: string, analysisNumber?: number): Promise<CreditReport> {
+    const updateData: any = {
+      analysisResults,
+      analysisStatus: status,
+    };
+    if (analysisNumber !== undefined) {
+      updateData.analysisNumber = analysisNumber;
+    }
     const [creditReport] = await db
       .update(creditReports)
-      .set({
-        analysisResults,
-        analysisStatus: status,
-      })
+      .set(updateData)
       .where(eq(creditReports.id, id))
       .returning();
     return creditReport;
@@ -218,6 +243,76 @@ export class DatabaseStorage implements IStorage {
     await db.delete(aiIssueExplanations).where(eq(aiIssueExplanations.runId, sql`(SELECT id FROM analysis_runs WHERE credit_report_id = ${id})`));
     // Delete the credit report itself
     await db.delete(creditReports).where(eq(creditReports.id, id));
+  }
+
+  async softDeleteCreditReport(id: string): Promise<CreditReport> {
+    const [creditReport] = await db
+      .update(creditReports)
+      .set({
+        isDeleted: true,
+        deletedAt: new Date(),
+      })
+      .where(eq(creditReports.id, id))
+      .returning();
+    return creditReport;
+  }
+
+  async restoreCreditReport(id: string): Promise<CreditReport> {
+    const [creditReport] = await db
+      .update(creditReports)
+      .set({
+        isDeleted: false,
+        deletedAt: null,
+      })
+      .where(eq(creditReports.id, id))
+      .returning();
+    return creditReport;
+  }
+
+  async getNextAnalysisNumber(userId: string): Promise<number> {
+    const result = await db
+      .select({ maxNumber: sql<number>`COALESCE(MAX(${creditReports.analysisNumber}), 0)` })
+      .from(creditReports)
+      .where(eq(creditReports.userId, userId));
+    return (result[0]?.maxNumber || 0) + 1;
+  }
+
+  async updateCreditReportRetention(id: string, retainAnalysis: boolean): Promise<CreditReport> {
+    const [creditReport] = await db
+      .update(creditReports)
+      .set({ retainAnalysis })
+      .where(eq(creditReports.id, id))
+      .returning();
+    return creditReport;
+  }
+
+  async clearLastAnalysis(userId: string): Promise<void> {
+    // Get the most recent analysis for this user
+    const reports = await db
+      .select()
+      .from(creditReports)
+      .where(and(
+        eq(creditReports.userId, userId),
+        eq(creditReports.isDeleted, false)
+      ))
+      .orderBy(desc(creditReports.createdAt))
+      .limit(1);
+    
+    if (reports.length > 0) {
+      const reportId = reports[0].id;
+      // Only clear if retainAnalysis is false
+      if (!reports[0].retainAnalysis) {
+        await db.delete(violations).where(eq(violations.creditReportId, reportId));
+        await this.deleteAnalysisDataByReportId(reportId);
+        await db
+          .update(creditReports)
+          .set({
+            analysisResults: null,
+            analysisStatus: "PENDING",
+          })
+          .where(eq(creditReports.id, reportId));
+      }
+    }
   }
 
   // Violations operations

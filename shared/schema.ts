@@ -69,6 +69,10 @@ export const creditReports = pgTable("credit_reports", {
   bureau: varchar("bureau"), // EQUIFAX, TRANSUNION, EXPERIAN, TRI-MERGE
   analysisStatus: varchar("analysis_status").default("PENDING").notNull(), // PENDING, ANALYZING, COMPLETED, FAILED
   analysisResults: jsonb("analysis_results"), // JSON containing detected violations
+  analysisNumber: integer("analysis_number"), // Sequential analysis number per user
+  retainAnalysis: boolean("retain_analysis").default(true), // Whether to keep analysis results
+  isDeleted: boolean("is_deleted").default(false), // Soft delete flag
+  deletedAt: timestamp("deleted_at"), // When the report was soft deleted
   createdAt: timestamp("created_at").defaultNow(),
 });
 

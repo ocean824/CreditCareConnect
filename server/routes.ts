@@ -1400,6 +1400,114 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Soft delete credit report (keeps data but marks as deleted)
+  app.patch('/api/credit-reports/:id/soft-delete', requireActiveSubscription, async (req: any, res) => {
+    try {
+      const userId = req.session.userId;
+      const reportId = req.params.id;
+      
+      // Get the credit report to verify ownership
+      const report = await storage.getCreditReportById(reportId);
+      
+      if (!report || report.userId !== userId) {
+        return res.status(404).json({ message: "Credit report not found" });
+      }
+      
+      if (report.isDeleted) {
+        return res.status(400).json({ message: "Report is already deleted" });
+      }
+      
+      const updatedReport = await storage.softDeleteCreditReport(reportId);
+      console.log(`🗑️  Soft deleted credit report ${reportId}`);
+      
+      res.json({ 
+        message: "Credit report moved to trash",
+        report: updatedReport 
+      });
+    } catch (error: any) {
+      console.error("Error soft deleting credit report:", error);
+      res.status(500).json({ message: "Failed to delete credit report" });
+    }
+  });
+
+  // Restore soft deleted credit report
+  app.patch('/api/credit-reports/:id/restore', requireActiveSubscription, async (req: any, res) => {
+    try {
+      const userId = req.session.userId;
+      const reportId = req.params.id;
+      
+      // Get the credit report including deleted ones
+      const report = await storage.getCreditReportById(reportId);
+      
+      if (!report || report.userId !== userId) {
+        return res.status(404).json({ message: "Credit report not found" });
+      }
+      
+      if (!report.isDeleted) {
+        return res.status(400).json({ message: "Report is not deleted" });
+      }
+      
+      const updatedReport = await storage.restoreCreditReport(reportId);
+      console.log(`♻️  Restored credit report ${reportId}`);
+      
+      res.json({ 
+        message: "Credit report restored",
+        report: updatedReport 
+      });
+    } catch (error: any) {
+      console.error("Error restoring credit report:", error);
+      res.status(500).json({ message: "Failed to restore credit report" });
+    }
+  });
+
+  // Toggle analysis retention for a credit report
+  app.patch('/api/credit-reports/:id/retention', requireActiveSubscription, async (req: any, res) => {
+    try {
+      const userId = req.session.userId;
+      const reportId = req.params.id;
+      const { retainAnalysis } = req.body;
+      
+      if (typeof retainAnalysis !== 'boolean') {
+        return res.status(400).json({ message: "retainAnalysis must be a boolean" });
+      }
+      
+      // Get the credit report to verify ownership
+      const report = await storage.getCreditReportById(reportId);
+      
+      if (!report || report.userId !== userId) {
+        return res.status(404).json({ message: "Credit report not found" });
+      }
+      
+      const updatedReport = await storage.updateCreditReportRetention(reportId, retainAnalysis);
+      console.log(`📝 Updated retention for report ${reportId}: ${retainAnalysis}`);
+      
+      res.json({ 
+        message: `Analysis will ${retainAnalysis ? 'be kept' : 'be cleared'} on next upload`,
+        report: updatedReport 
+      });
+    } catch (error: any) {
+      console.error("Error updating retention:", error);
+      res.status(500).json({ message: "Failed to update retention setting" });
+    }
+  });
+
+  // Clear last analysis for a user
+  app.post('/api/credit-reports/clear-last-analysis', requireActiveSubscription, async (req: any, res) => {
+    try {
+      const userId = req.session.userId;
+      
+      await storage.clearLastAnalysis(userId);
+      console.log(`🧹 Cleared last analysis for user ${userId}`);
+      
+      res.json({ 
+        message: "Last analysis cleared successfully" 
+      });
+    } catch (error: any) {
+      console.error("Error clearing last analysis:", error);
+      res.status(500).json({ message: "Failed to clear last analysis" });
+    }
+  });
+
   // Reprocess credit report (for FAILED or PENDING reports)
   app.post('/api/credit-reports/:id/reprocess', requireActiveSubscription, async (req: any, res) => {
     try {

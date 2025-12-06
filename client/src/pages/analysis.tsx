@@ -7,7 +7,9 @@ import { DocumentHistoryPanel } from "@/components/DocumentHistoryPanel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, TrendingUp, Shield, DollarSign, Target, Trash2, RefreshCw, Bug, FileText, Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertCircle, TrendingUp, Shield, DollarSign, Target, Trash2, RefreshCw, Bug, FileText, Loader2, Archive, RotateCcw, Eraser, Hash } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
@@ -21,7 +23,25 @@ export default function Analysis() {
   const [diagnosticResults, setDiagnosticResults] = useState<any>(null);
   const [runningDiagnostic, setRunningDiagnostic] = useState(false);
   const [generatingLetter, setGeneratingLetter] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [reportToDelete, setReportToDelete] = useState<CreditReport | null>(null);
+  const [clearingAnalysis, setClearingAnalysis] = useState(false);
+  const [mutatingReportIds, setMutatingReportIds] = useState<Set<string>>(new Set());
   const { toast } = useToast();
+
+  const addMutatingReport = (reportId: string) => {
+    setMutatingReportIds(prev => new Set(prev).add(reportId));
+  };
+
+  const removeMutatingReport = (reportId: string) => {
+    setMutatingReportIds(prev => {
+      const next = new Set(prev);
+      next.delete(reportId);
+      return next;
+    });
+  };
+
+  const isReportMutating = (reportId: string) => mutatingReportIds.has(reportId);
 
   const handleGenerateLetter = async (violation: Violation) => {
     setGeneratingLetter(violation.id);
@@ -120,24 +140,128 @@ export default function Analysis() {
 
   const deleteMutation = useMutation({
     mutationFn: async (reportId: string) => {
+      addMutatingReport(reportId);
       return await apiRequest('DELETE', `/api/credit-reports/${reportId}`);
     },
-    onSuccess: () => {
+    onSuccess: (_, reportId) => {
       toast({
         title: "Success",
-        description: "Credit report deleted successfully",
+        description: "Credit report permanently deleted",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
       queryClient.invalidateQueries({ queryKey: ["/api/violations"] });
+      setDeleteDialogOpen(false);
+      setReportToDelete(null);
+      removeMutatingReport(reportId);
     },
-    onError: () => {
+    onError: (_, reportId) => {
       toast({
         title: "Error",
         description: "Failed to delete credit report",
         variant: "destructive",
       });
+      removeMutatingReport(reportId);
     },
   });
+
+  const softDeleteMutation = useMutation({
+    mutationFn: async (reportId: string) => {
+      addMutatingReport(reportId);
+      return await apiRequest('PATCH', `/api/credit-reports/${reportId}/soft-delete`);
+    },
+    onSuccess: (_, reportId) => {
+      toast({
+        title: "Report Archived",
+        description: "Credit report moved to trash. You can restore it later.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
+      setDeleteDialogOpen(false);
+      setReportToDelete(null);
+      removeMutatingReport(reportId);
+    },
+    onError: (_, reportId) => {
+      toast({
+        title: "Error",
+        description: "Failed to archive credit report",
+        variant: "destructive",
+      });
+      removeMutatingReport(reportId);
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (reportId: string) => {
+      addMutatingReport(reportId);
+      return await apiRequest('PATCH', `/api/credit-reports/${reportId}/restore`);
+    },
+    onSuccess: (_, reportId) => {
+      toast({
+        title: "Report Restored",
+        description: "Credit report restored successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
+      removeMutatingReport(reportId);
+    },
+    onError: (_, reportId) => {
+      toast({
+        title: "Error",
+        description: "Failed to restore credit report",
+        variant: "destructive",
+      });
+      removeMutatingReport(reportId);
+    },
+  });
+
+  const retentionMutation = useMutation({
+    mutationFn: async ({ reportId, retainAnalysis }: { reportId: string; retainAnalysis: boolean }) => {
+      addMutatingReport(reportId);
+      return await apiRequest('PATCH', `/api/credit-reports/${reportId}/retention`, { retainAnalysis });
+    },
+    onSuccess: (_, variables) => {
+      toast({
+        title: variables.retainAnalysis ? "Analysis Retained" : "Analysis Will Clear",
+        description: variables.retainAnalysis 
+          ? "Analysis results will be kept on next upload" 
+          : "Analysis results will be cleared on next upload",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
+      removeMutatingReport(variables.reportId);
+    },
+    onError: (_, variables) => {
+      toast({
+        title: "Error",
+        description: "Failed to update retention setting",
+        variant: "destructive",
+      });
+      removeMutatingReport(variables.reportId);
+    },
+  });
+
+  const handleClearLastAnalysis = async () => {
+    setClearingAnalysis(true);
+    try {
+      await apiRequest('POST', '/api/credit-reports/clear-last-analysis');
+      toast({
+        title: "Analysis Cleared",
+        description: "Last analysis results have been cleared",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/violations"] });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to clear last analysis",
+        variant: "destructive",
+      });
+    } finally {
+      setClearingAnalysis(false);
+    }
+  };
+
+  const openDeleteDialog = (report: CreditReport) => {
+    setReportToDelete(report);
+    setDeleteDialogOpen(true);
+  };
 
   const handleReanalyze = async (reportId: string) => {
     setReanalyzing(reportId);
@@ -204,45 +328,92 @@ export default function Analysis() {
       {creditReports && creditReports.length > 0 && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Uploaded Reports</CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleClearLastAnalysis}
+                disabled={clearingAnalysis}
+                data-testid="button-clear-last-analysis"
+                className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+              >
+                <Eraser className={`w-4 h-4 mr-1 ${clearingAnalysis ? 'animate-pulse' : ''}`} />
+                {clearingAnalysis ? 'Clearing...' : 'Clear Last Analysis'}
+              </Button>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 gap-3">
-                {creditReports.map((report) => (
+                {creditReports.map((report: any) => (
                   <div 
                     key={report.id} 
-                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50"
+                    className={`flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 ${report.isDeleted ? 'opacity-50 bg-muted/20' : ''}`}
                     data-testid={`credit-report-row-${report.id}`}
                   >
-                    <div>
-                      <p className="font-medium text-sm">{report.fileName}</p>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        {report.analysisNumber && (
+                          <Badge variant="outline" className="text-xs">
+                            <Hash className="w-3 h-3 mr-1" />
+                            {report.analysisNumber}
+                          </Badge>
+                        )}
+                        <p className="font-medium text-sm">{report.fileName}</p>
+                        {report.isDeleted && (
+                          <Badge variant="secondary" className="text-xs">Archived</Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground">
-                        Status: {report.analysisStatus}
+                        Status: {report.analysisStatus} | Bureau: {report.bureau || 'Unknown'}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>Keep Analysis</span>
+                        <Switch
+                          checked={report.retainAnalysis ?? true}
+                          onCheckedChange={(checked) => 
+                            retentionMutation.mutate({ reportId: report.id, retainAnalysis: checked })
+                          }
+                          disabled={isReportMutating(report.id)}
+                          data-testid={`switch-retention-${report.id}`}
+                        />
+                      </div>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => handleReanalyze(report.id)}
-                        disabled={reanalyzing === report.id}
+                        disabled={reanalyzing === report.id || report.isDeleted || isReportMutating(report.id)}
                         data-testid={`button-reanalyze-report-${report.id}`}
                         className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                       >
                         <RefreshCw className={`w-4 h-4 mr-1 ${reanalyzing === report.id ? 'animate-spin' : ''}`} />
                         {reanalyzing === report.id ? 'Analyzing...' : 'Re-analyze'}
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => deleteMutation.mutate(report.id)}
-                        disabled={deleteMutation.isPending}
-                        data-testid={`button-delete-report-${report.id}`}
-                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      {report.isDeleted ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => restoreMutation.mutate(report.id)}
+                          disabled={isReportMutating(report.id)}
+                          data-testid={`button-restore-report-${report.id}`}
+                          className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                        >
+                          <RotateCcw className={`w-4 h-4 mr-1 ${isReportMutating(report.id) ? 'animate-spin' : ''}`} />
+                          {isReportMutating(report.id) ? 'Restoring...' : 'Restore'}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => openDeleteDialog(report)}
+                          disabled={isReportMutating(report.id)}
+                          data-testid={`button-delete-report-${report.id}`}
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -251,6 +422,58 @@ export default function Analysis() {
           </Card>
         </div>
       )}
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Credit Report</DialogTitle>
+            <DialogDescription>
+              What would you like to do with "{reportToDelete?.fileName}"?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <Button
+              variant="outline"
+              onClick={() => reportToDelete && softDeleteMutation.mutate(reportToDelete.id)}
+              disabled={softDeleteMutation.isPending || deleteMutation.isPending}
+              className="w-full justify-start"
+              data-testid="button-archive-report"
+            >
+              {softDeleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Archive className="w-4 h-4 mr-2" />
+              )}
+              {softDeleteMutation.isPending ? 'Archiving...' : 'Archive (Move to Trash)'}
+              {!softDeleteMutation.isPending && (
+                <span className="ml-auto text-xs text-muted-foreground">Can restore later</span>
+              )}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => reportToDelete && deleteMutation.mutate(reportToDelete.id)}
+              disabled={softDeleteMutation.isPending || deleteMutation.isPending}
+              className="w-full justify-start"
+              data-testid="button-permanent-delete"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-2" />
+              )}
+              {deleteMutation.isPending ? 'Deleting...' : 'Permanently Delete'}
+              {!deleteMutation.isPending && (
+                <span className="ml-auto text-xs">Cannot be undone</span>
+              )}
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">

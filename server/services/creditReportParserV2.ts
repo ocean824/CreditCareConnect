@@ -61,6 +61,14 @@ OUTPUT RULES (CRITICAL):
 - All dates must be ISO-8601 format (YYYY-MM-DD)
 - CRITICAL: Extract ALL date fields - these are essential for violation detection!
 
+ACCOUNT NAME EXTRACTION (MANDATORY):
+- EVERY tradeline MUST have a creditorName - this is the company name (e.g., "CAPITAL ONE", "CHASE BANK", "DISCOVER")
+- EVERY collection MUST have a collectorName - the collection agency (e.g., "MIDLAND FUNDING", "PORTFOLIO RECOVERY")
+- Look for these labels: "Creditor Name", "Account Name", "Company Name", "Lender", "Subscriber", "Furnisher"
+- Common creditor names: CAPITAL ONE, CHASE, DISCOVER, CITI, WELLS FARGO, BANK OF AMERICA, SYNCHRONY BANK, BARCLAYS, AMERICAN EXPRESS, GM FINANCIAL, ALLY FINANCIAL, NAVY FEDERAL
+- Common collector names: MIDLAND FUNDING, PORTFOLIO RECOVERY, LVNV FUNDING, CAVALRY SPV, ENHANCED RECOVERY, IC SYSTEM, TRANSWORLD SYSTEMS
+- NEVER return "Unknown Account" or empty string for creditorName/collectorName - always extract the actual company name from the report text
+
 Return this exact JSON structure:
 {
   "id": "string",
