@@ -21,6 +21,39 @@ function normalizeBureauArray(bureaus: string[] | undefined): ValidBureau[] {
     .filter((b): b is ValidBureau => b !== null);
 }
 
+// Derive bureau membership from bureauSnapshots if bureaus array is empty
+function deriveBureausFromSnapshots(bureauSnapshots: any[]): ValidBureau[] {
+  if (!bureauSnapshots || !Array.isArray(bureauSnapshots) || bureauSnapshots.length === 0) {
+    return [];
+  }
+  const bureaus = bureauSnapshots
+    .map(bs => normalizeBureauCode(bs.bureau))
+    .filter((b): b is ValidBureau => b !== null);
+  return Array.from(new Set(bureaus)); // Remove duplicates
+}
+
+// Check if account belongs to a bureau (with fallback to snapshots and all-bureaus default)
+function accountBelongsToBureau(
+  bureaus: ValidBureau[], 
+  bureauSnapshots: any[], 
+  targetBureau: ValidBureau,
+  allBureaus: ValidBureau[]
+): boolean {
+  // First try explicit bureaus array
+  if (bureaus && bureaus.length > 0) {
+    return bureaus.includes(targetBureau);
+  }
+  
+  // Fall back to deriving from bureauSnapshots
+  const derivedBureaus = deriveBureausFromSnapshots(bureauSnapshots);
+  if (derivedBureaus.length > 0) {
+    return derivedBureaus.includes(targetBureau);
+  }
+  
+  // If both are empty, include in ALL bureaus (account exists but bureau info missing)
+  return true;
+}
+
 export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditReport {
   // Normalize all bureau codes in the report to uppercase
   const normalizedBureausIncluded = normalizeBureauArray(report.meta.bureausIncluded);
@@ -69,7 +102,7 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
     const legacyBureauName = bureau === "EXPERIAN" ? "Experian" : bureau === "EQUIFAX" ? "Equifax" : "TransUnion";
 
     const tradelines: LegacyTradeline[] = normalizedTradelines
-      .filter((tl) => tl.bureaus.includes(bureau))
+      .filter((tl) => accountBelongsToBureau(tl.bureaus, tl.bureauSnapshots, bureau, bureausToCreate))
       .map((tl) => {
         const snapshot = tl.bureauSnapshots.find((bs) => bs.bureau === bureau);
         return {
@@ -93,7 +126,7 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
       });
 
     const collections = normalizedCollections
-      .filter((col) => col.bureaus.includes(bureau))
+      .filter((col) => accountBelongsToBureau(col.bureaus, col.bureauSnapshots, bureau, bureausToCreate))
       .map((col) => {
         const snapshot = col.bureauSnapshots.find((bs) => bs.bureau === bureau);
         return {
@@ -110,7 +143,7 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
       });
 
     const publicRecords = normalizedPublicRecords
-      .filter((pr) => pr.bureaus.includes(bureau))
+      .filter((pr) => accountBelongsToBureau(pr.bureaus, [], bureau, bureausToCreate))
       .map((pr) => ({
         internalId: pr.id,
         type: pr.type as "Bankruptcy" | "TaxLien" | "Judgment" | "Other",
@@ -138,6 +171,22 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
       publicRecords,
       inquiries
     });
+  }
+
+  // Warn if we produced zero accounts despite having input data
+  const totalOutputTradelines = bureauReports.reduce((sum, b) => sum + b.tradelines.length, 0);
+  const totalOutputCollections = bureauReports.reduce((sum, b) => sum + b.collections.length, 0);
+  
+  if (normalizedTradelines.length > 0 && totalOutputTradelines === 0) {
+    console.warn(`⚠️ [ConvertTriMerge] WARNING: Input had ${normalizedTradelines.length} tradelines but output has 0!`);
+    console.warn(`   First tradeline bureaus: ${JSON.stringify(normalizedTradelines[0]?.bureaus)}`);
+    console.warn(`   First tradeline snapshots: ${JSON.stringify(normalizedTradelines[0]?.bureauSnapshots?.map(s => s.bureau))}`);
+  }
+  
+  if (normalizedCollections.length > 0 && totalOutputCollections === 0) {
+    console.warn(`⚠️ [ConvertTriMerge] WARNING: Input had ${normalizedCollections.length} collections but output has 0!`);
+    console.warn(`   First collection bureaus: ${JSON.stringify(normalizedCollections[0]?.bureaus)}`);
+    console.warn(`   First collection snapshots: ${JSON.stringify(normalizedCollections[0]?.bureauSnapshots?.map(s => s.bureau))}`);
   }
 
   // Convert addresses to required format
