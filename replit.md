@@ -88,7 +88,7 @@ Six advanced cross-bureau detection rules trained from real credit report patter
 - **R2_FCRA_BALANCE_INCONSISTENT_ACROSS_BUREAUS**: Same tradeline has materially different balances/past-due amounts across bureaus (>$50 difference)
 - **R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO**: Charged-off accounts reporting full balance as 'past due' violates Metro 2 guidance
 - **R4_METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT**: Third-party collector coded as open trade account instead of collection
-- **R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT**: Same collection debt reported twice on same bureau. Four detection paths: (1) bureauAccountId match, (2) 4+ digit account number match, (3) DOFD match for fully masked accounts, (4) openedDate match with both names matching. All paths require exact balance
+- **R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT**: Same collection debt reported twice on same bureau (NOT cross-bureau). Four detection paths: (1) bureauAccountId match, (2) 4+ digit account number match, (3) DOFD match for fully masked accounts, (4) openedDate match with both names matching. All paths require exact balance. Scoped per-bureau to avoid false positives
 - **R6_FCRA_SOLD_ACCOUNT_STILL_CHARGEOFF_STATUS**: Original creditor shows $0 balance with 'sold' remark but still coded as active charge-off
 
 Pipeline for bureauAccountId field:
@@ -97,6 +97,13 @@ Pipeline for bureauAccountId field:
 3. TriMergeCreditReport interface includes bureauAccountId field
 4. convertTriMergeToLegacy passes through to legacy CreditReport format
 5. Rules engine uses bureauAccountId as primary anchor for duplicate detection
+
+Pipeline for statusRaw and remarks fields (R6 support):
+1. Parser extracts statusRaw from AI response (raw status string before normalization)
+2. Parser extracts remarks array from AI response
+3. TriMergeCreditReport and legacy CreditReport both include statusRaw and remarks
+4. convertTriMergeToLegacy passes statusRaw and remarks through
+5. R6 checks status, statusRaw, and remarks for sold/chargeoff indicators
 
 All rules include proper FCRA/Metro 2 statute citations for dispute letters.
 

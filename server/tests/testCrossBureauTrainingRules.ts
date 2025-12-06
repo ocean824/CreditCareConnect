@@ -308,6 +308,67 @@ async function testR6SoldAccountChargeoff() {
   return r6Issues.length > 0;
 }
 
+async function testR5CrossBureauNoFalsePositive() {
+  console.log('\n=== Test R5 Cross-Bureau: No False Positives for Same Debt on Different Bureaus ===');
+  console.log('Verifying: Same collection on different bureaus should NOT be flagged as duplicate');
+  
+  const collection1: CollectionAccount = {
+    internalId: 'col-001',
+    collectorName: 'MIDLAND FUNDING LLC',
+    originalCreditorName: 'SYNCHRONY BANK',
+    accountNumberMasked: '****1234',
+    balance: 1000,
+    status: 'Open',
+    openedDate: '2020-01-15',
+    dateOfFirstDelinquency: '2020-03-01',
+  };
+
+  const equifaxBureau: BureauReport = {
+    bureau: 'Equifax',
+    tradelines: [],
+    collections: [collection1],
+    publicRecords: [],
+    inquiries: [],
+  };
+  
+  const transunionBureau: BureauReport = {
+    bureau: 'TransUnion',
+    tradelines: [],
+    collections: [{
+      ...collection1,
+      internalId: 'col-001-tu',
+    }],
+    publicRecords: [],
+    inquiries: [],
+  };
+  
+  const experianBureau: BureauReport = {
+    bureau: 'Experian',
+    tradelines: [],
+    collections: [{
+      ...collection1,
+      internalId: 'col-001-ex',
+    }],
+    publicRecords: [],
+    inquiries: [],
+  };
+
+  const report = createBaseReport();
+  report.bureaus = [equifaxBureau, transunionBureau, experianBureau];
+
+  const issues = await runAllRules(report);
+  const r5Issues = issues.filter(i => i.ruleId === 'R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT');
+  
+  console.log(`Found ${r5Issues.length} R5 violations`);
+  if (r5Issues.length === 0) {
+    console.log('✅ PASS: Same collection on different bureaus NOT flagged as duplicate');
+  } else {
+    console.log('❌ FAIL: False positive - same collection on different bureaus was flagged');
+  }
+  
+  return r5Issues.length === 0;
+}
+
 async function runAllTests() {
   console.log('========================================');
   console.log('Cross-Bureau Training Rules Test Suite');
@@ -320,6 +381,7 @@ async function runAllTests() {
   results.push({ name: 'R5 Path 3 (DOFD)', passed: await testR5Path3DOFD() });
   results.push({ name: 'R5 Path 4 (OpenedDate)', passed: await testR5Path4OpenedDate() });
   results.push({ name: 'R5 No False Positives', passed: await testR5NoDuplicate() });
+  results.push({ name: 'R5 Cross-Bureau No False Positive', passed: await testR5CrossBureauNoFalsePositive() });
   results.push({ name: 'R6 Sold Account Chargeoff', passed: await testR6SoldAccountChargeoff() });
   
   console.log('\n========================================');

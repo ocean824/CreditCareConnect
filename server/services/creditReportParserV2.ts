@@ -353,6 +353,7 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
         accountNumberLast4: tl.accountNumberLast4,
         type: validateTradelineType(tl.type) || "OTHER",
         status: validateAccountStatus(tl.status) || "UNKNOWN",
+        statusRaw: tl.status || tl.statusRaw || tl.accountStatus || null,
         balance: tl.balance ?? null,
         pastDue: tl.pastDue ?? null,
         dateOfFirstDelinquency: normalizeDate(tl.dateOfFirstDelinquency),

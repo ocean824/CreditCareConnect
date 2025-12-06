@@ -112,6 +112,8 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
           accountNumberMasked: tl.accountNumberLast4 ? `****${tl.accountNumberLast4}` : undefined,
           type: mapTradelineType(tl.type),
           status: mapAccountStatus(snapshot?.status || tl.status),
+          statusRaw: (tl as any).statusRaw || tl.status || undefined,
+          remarks: (tl as any).remarks || undefined,
           balance: snapshot?.balance ?? tl.balance,
           pastDueAmount: snapshot?.pastDue ?? tl.pastDue,
           lastPaymentDate: tl.lastPaymentDate,

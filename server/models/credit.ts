@@ -48,6 +48,7 @@ export interface Tradeline {
   accountNumberLast4?: string;
   type: TradelineType;
   status: AccountStatus;
+  statusRaw?: string;
   balance: number | null;
   pastDue: number | null;
   bureaus: Exclude<BureauCode, 'TRI'>[];
