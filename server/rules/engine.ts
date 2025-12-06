@@ -13,6 +13,7 @@ import { runComprehensiveFCRARules } from './rules_fcra_comprehensive';
 import { runComprehensiveFDCPARules } from './rules_fdcpa_comprehensive';
 import { runMetro2Rules } from './rules_metro2_comprehensive';
 import { runCrossBureauTrainingRules } from './rules_cross_bureau_training';
+import { runExpandedFCRARules } from './rules_expanded_fcra';
 
 export function runAllRules(report: CreditReport): IssueFlag[] {
   console.log('🔬 [ENGINE] Starting rules engine...');
@@ -91,6 +92,11 @@ export function runAllRules(report: CreditReport): IssueFlag[] {
   const crossBureauTrainingIssues = runCrossBureauTrainingRules(report);
   console.log(`🔬 [ENGINE] Cross-bureau training rules: ${crossBureauTrainingIssues.length} issues`);
   issues.push(...crossBureauTrainingIssues);
+  
+  // Run expanded FCRA rules (25+ additional per-account validation rules)
+  const expandedFCRAIssues = runExpandedFCRARules(report);
+  console.log(`🔬 [ENGINE] Expanded FCRA rules: ${expandedFCRAIssues.length} issues`);
+  issues.push(...expandedFCRAIssues);
   
   // Deduplicate issues by ruleId + affectedIds combination
   const seenKeys = new Set<string>();
