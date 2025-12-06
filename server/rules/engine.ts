@@ -12,6 +12,7 @@ import { runDisputableRules } from './rules_disputable';
 import { runComprehensiveFCRARules } from './rules_fcra_comprehensive';
 import { runComprehensiveFDCPARules } from './rules_fdcpa_comprehensive';
 import { runMetro2Rules } from './rules_metro2_comprehensive';
+import { runCrossBureauTrainingRules } from './rules_cross_bureau_training';
 
 export function runAllRules(report: CreditReport): IssueFlag[] {
   console.log('🔬 [ENGINE] Starting rules engine...');
@@ -85,6 +86,11 @@ export function runAllRules(report: CreditReport): IssueFlag[] {
   const metro2Issues = runMetro2Rules(report);
   console.log(`🔬 [ENGINE] Metro2 rules: ${metro2Issues.length} issues`);
   issues.push(...metro2Issues);
+  
+  // Run cross-bureau training rules (R1-R6)
+  const crossBureauTrainingIssues = runCrossBureauTrainingRules(report);
+  console.log(`🔬 [ENGINE] Cross-bureau training rules: ${crossBureauTrainingIssues.length} issues`);
+  issues.push(...crossBureauTrainingIssues);
   
   // Deduplicate issues by ruleId + affectedIds combination
   const seenKeys = new Set<string>();

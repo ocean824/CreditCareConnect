@@ -107,6 +107,7 @@ export interface CollectionAccount {
   collectorName: string;
   originalCreditorName?: string;
   accountNumberMasked?: string;
+  bureauAccountId?: string;
   balance?: number;
   status?: 'Open' | 'Closed' | 'Paid' | 'Settled' | 'Disputed';
   openedDate?: string;

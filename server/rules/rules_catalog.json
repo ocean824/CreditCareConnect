@@ -6,6 +6,66 @@
   },
   "rules": [
     {
+      "id": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "category": "FCRA",
+      "description": "Same tradeline has materially different delinquency/foreclosure status across bureaus (e.g., 120D late vs 180D late vs foreclosure).",
+      "lawReferences": ["FCRA 15 U.S.C. § 1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "explanationKey": "R1_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "letterParagraph": "For this account, the reported status/delinquency level differs materially between my Experian, Equifax, and TransUnion reports. The same loan cannot simultaneously show different severity levels across bureaus. This inconsistency makes the reporting misleading and fails to meet the FCRA's 'maximum possible accuracy' standard."
+    },
+    {
+      "id": "R2_FCRA_BALANCE_INCONSISTENT_ACROSS_BUREAUS",
+      "category": "FCRA",
+      "description": "Same tradeline has materially different balances/past-due amounts across bureaus (more than $50 difference).",
+      "lawReferences": ["FCRA 15 U.S.C. § 1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "explanationKey": "R2_BALANCE_INCONSISTENT_ACROSS_BUREAUS",
+      "letterParagraph": "The reported balance and past-due amounts for this account are inconsistent across the three credit bureaus. The same debt cannot simultaneously show different balances. This inconsistency violates FCRA's accuracy standard and must be corrected."
+    },
+    {
+      "id": "R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "category": "METRO2",
+      "description": "Charged-off accounts should not show full balance also as 'past due'. After charge-off, Past Due field should be zero per Metro 2 guidance.",
+      "lawReferences": ["Metro 2 Consumer Credit Reporting Resource Guide – Charge-off coding", "FCRA 15 U.S.C. § 1681s-2(a)(1)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE", "COLLECTION"],
+      "explanationKey": "R3_CHARGEOFF_PAST_DUE_NONZERO",
+      "letterParagraph": "This account is reported as a charge-off but still shows the full balance as 'past due'. Under Metro 2 guidance, charged-off accounts are no longer in a repayment status and should not report past-due amounts. This non-compliant reporting is misleading."
+    },
+    {
+      "id": "R4_METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT",
+      "category": "METRO2",
+      "description": "A third-party collector is coded as an open trade account with lates instead of a collection account.",
+      "lawReferences": ["Metro 2 guidelines – collection agency reporting", "FCRA 15 U.S.C. § 1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "explanationKey": "R4_COLLECTION_REPORTED_AS_OPEN",
+      "letterParagraph": "This debt collector tradeline is coded as an open account with late payments instead of being reported solely as a collection account. That misclassification is misleading and inconsistent with standard Metro 2 reporting guidelines for third-party collections."
+    },
+    {
+      "id": "R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT",
+      "category": "FCRA",
+      "description": "Same collection debt is reported twice on the same bureau. Detection uses three paths: (1) bureauAccountId match, (2) account number match (4+ digits), or (3) DOFD match when account numbers are fully masked. All paths require name match (collector OR original creditor) plus identical balance.",
+      "lawReferences": ["FCRA 15 U.S.C. § 1681e(b)"],
+      "enabled": true,
+      "appliesTo": ["COLLECTION"],
+      "explanationKey": "R5_DUPLICATE_COLLECTION_SAME_DEBT",
+      "letterParagraph": "The same collection debt appears multiple times on my credit report, which unfairly doubles the negative impact of a single alleged debt. Reporting the same debt multiple times is misleading and does not satisfy the FCRA requirement that consumer reports be prepared with maximum possible accuracy."
+    },
+    {
+      "id": "R6_FCRA_SOLD_ACCOUNT_STILL_CHARGEOFF_STATUS",
+      "category": "FCRA",
+      "description": "Original creditor shows $0 balance and 'sold' remark but still coded as active charge-off/collection status.",
+      "lawReferences": ["FCRA 15 U.S.C. § 1681e(b)", "Metro 2 guidelines – sold/transferred accounts"],
+      "enabled": true,
+      "appliesTo": ["TRADELINE"],
+      "explanationKey": "R6_SOLD_ACCOUNT_STILL_CHARGEOFF",
+      "letterParagraph": "This original creditor account shows a $0 balance with 'sold' or 'transferred' remarks but still reports a charge-off or collection status. Under Metro 2 standards, a sold account with zero balance should not maintain an active derogatory status. This is misleading and inaccurate."
+    },
+    {
       "id": "FCRA_INCONSISTENT_BALANCE_OR_PAST_DUE",
       "category": "FCRA",
       "description": "Same tradeline reports materially different balance or past-due amounts across bureaus for the same debt.",

@@ -66,6 +66,7 @@ export interface CollectionAccount {
   collectorName: string;
   originalCreditorName?: string;
   accountNumberLast4?: string;
+  bureauAccountId?: string;
   status: CollectionStatus;
   balance: number | null;
   bureaus: Exclude<BureauCode, 'TRI'>[];

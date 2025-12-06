@@ -134,6 +134,7 @@ export function convertTriMergeToLegacy(report: TriMergeCreditReport): CreditRep
           collectorName: col.collectorName,
           originalCreditorName: col.originalCreditorName,
           accountNumberMasked: col.accountNumberLast4 ? `****${col.accountNumberLast4}` : undefined,
+          bureauAccountId: (col as any).bureauAccountId || undefined,
           status: mapCollectionStatus(snapshot?.status),
           balance: snapshot?.balance ?? col.balance,
           dateOfFirstDelinquency: col.dateOfFirstDelinquency,
