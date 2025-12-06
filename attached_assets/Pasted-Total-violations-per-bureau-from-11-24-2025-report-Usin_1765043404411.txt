@@ -1,0 +1,472 @@
+Total violations per bureau (from 11/24/2025 report)
+
+Using only structural / document-based issues visible on the report (status conflicts, charge-off coding issues, duplicate collections, etc.), I get:
+
+Experian: 8 violations
+
+Equifax: 8 violations
+
+TransUnion: 11 violations
+
+These counts come from applying the same set of rules (FCRA + Metro 2–based) to each tradeline across all three bureaus.
+
+2️⃣ Rule logic (what I’m checking)
+
+I’m using six core rules:
+
+R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS
+
+Law hook: FCRA 15 U.S.C. § 1681e(b) – “maximum possible accuracy.”
+
+Logic: For a given account (same creditor + account group), if the status / delinquency severity differs across bureaus (e.g., 120 days late vs 180 days late vs current), flag a violation for every bureau involved.
+
+R2_FCRA_BALANCE_INCONSISTENT_ACROSS_BUREAUS
+
+Law hook: FCRA 1681e(b).
+
+Logic: For a given account, if the reported balance or past-due differs materially across bureaus (e.g., $0 vs $11,265), flag a violation for every bureau in that account group.
+
+R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO
+
+Hook: Metro 2 guidance for charge-offs (past-due usually 0 once charged off).
+
+Logic: If an account is reported as “charge-off” or “collection/chargeoff” and past_due_amount > 0, flag a violation for that bureau.
+
+R4_METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT
+
+Hook: Metro 2 distinction between “open trade line” vs “third-party collection.”
+
+Logic: If a tradeline is clearly a debt collector / debt buyer, but the bureau codes it as an open account with lates instead of a collection, flag a violation.
+
+R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT
+
+Hook: FCRA 1681e(b) – misleading duplication of derogatories.
+
+Logic: If the same debt (same collector OR same original creditor + identical balance) appears as two tradelines on the same bureau, flag this as a duplicate collection violation.
+
+R6_FCRA_SOLD_ACCOUNT_STILL_CHARGEOFF_STATUS
+
+Hook: FCRA 1681e(b) + Metro 2 for sold/transferred accounts.
+
+Logic: If an original creditor tradeline shows:
+
+balance = 0,
+
+remark like “sold to [X] / purchased by another lender”,
+
+but status still shows “collection/chargeoff”,
+then flag as misleading.
+
+3️⃣ JSON representation (rules + all detections)
+
+Below is a single JSON object you can drop into your app.
+
+It includes:
+
+totalsByBureau – the counts you asked for
+
+rulesCatalog – each rule and its logic
+
+detections – every single violation, per bureau, per account
+
+{
+  "totalsByBureau": {
+    "Experian": 8,
+    "Equifax": 8,
+    "TransUnion": 11
+  },
+  "rulesCatalog": [
+    {
+      "id": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "category": "FCRA",
+      "lawReferences": ["15 U.S.C. § 1681e(b)"],
+      "description": "Same tradeline has materially different delinquency/foreclosure status across bureaus.",
+      "logic": {
+        "inputs": ["accountGroupId", "bureauStatuses"],
+        "condition": "exists accountGroupId such that statusSeverity differs across bureaus (e.g., CURRENT vs 30D_LATE vs 120D_LATE vs 180D_LATE)",
+        "effect": "flag violation for each bureau in that group"
+      }
+    },
+    {
+      "id": "R2_FCRA_BALANCE_INCONSISTENT_ACROSS_BUREAUS",
+      "category": "FCRA",
+      "lawReferences": ["15 U.S.C. § 1681e(b)"],
+      "description": "Same tradeline has materially different balances/past-due amounts across bureaus.",
+      "logic": {
+        "inputs": ["accountGroupId", "bureauBalances", "bureauPastDue"],
+        "condition": "for same accountGroupId, max(balance) - min(balance) > 50 OR max(pastDue) - min(pastDue) > 50",
+        "effect": "flag violation for each bureau in that group"
+      }
+    },
+    {
+      "id": "R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "category": "Metro2",
+      "lawReferences": [],
+      "description": "Charged-off accounts should not show full balance also as 'past due'.",
+      "logic": {
+        "inputs": ["accountStatus", "pastDueAmount"],
+        "condition": "accountStatus in ['CHARGEOFF', 'COLLECTION_CHARGEOFF'] AND pastDueAmount > 0",
+        "effect": "flag violation for that bureau tradeline"
+      }
+    },
+    {
+      "id": "R4_METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT",
+      "category": "Metro2",
+      "lawReferences": [],
+      "description": "A third-party collector is coded as an open trade account with lates instead of a collection account.",
+      "logic": {
+        "inputs": ["isDebtCollector", "accountType", "paymentHistory"],
+        "condition": "isDebtCollector = true AND accountType in ['OPEN', 'REVOLVING', 'UNKNOWN'] AND paymentHistory contains '30D/60D/90D/120D_LATE'",
+        "effect": "flag violation for that bureau tradeline"
+      }
+    },
+    {
+      "id": "R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT",
+      "category": "FCRA",
+      "lawReferences": ["15 U.S.C. § 1681e(b)"],
+      "description": "Same collection debt is reported twice on the same bureau.",
+      "logic": {
+        "inputs": ["bureau", "collectorName", "originalCreditor", "balance"],
+        "condition": "on same bureau, exists two or more tradelines with same collectorName OR (same originalCreditor AND same balance) where isCollection = true",
+        "effect": "flag violation for that bureau and debt group"
+      }
+    },
+    {
+      "id": "R6_FCRA_SOLD_ACCOUNT_STILL_CHARGEOFF_STATUS",
+      "category": "FCRA",
+      "lawReferences": ["15 U.S.C. § 1681e(b)"],
+      "description": "Original creditor shows $0 balance and 'sold' remark but still coded as active charge-off/collection.",
+      "logic": {
+        "inputs": ["isOriginalCreditor", "balance", "status", "remarks"],
+        "condition": "isOriginalCreditor = true AND balance = 0 AND status in ['CHARGEOFF', 'COLLECTION_CHARGEOFF'] AND (remarks contains 'sold to' OR 'purchased by another lender')",
+        "effect": "flag violation for that bureau tradeline"
+      }
+    }
+  ],
+  "detections": [
+    {
+      "bureau": "Experian",
+      "accountId": "CROSSCOUNTRY_PRIMARY",
+      "creditor": "CrossCountry Mortgage",
+      "ruleId": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "CROSSCOUNTRY_PRIMARY",
+        "experianStatus": "180D_LATE",
+        "transunionStatus": "120D_LATE",
+        "equifaxStatus": "120D_LATE"
+      }
+    },
+    {
+      "bureau": "Experian",
+      "accountId": "CROSSCOUNTRY_SECOND",
+      "creditor": "CrossCountry Mortgage",
+      "ruleId": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "CROSSCOUNTRY_SECOND",
+        "experianStatus": "180D_LATE",
+        "transunionStatus": "120D_LATE",
+        "equifaxStatus": "120D_LATE"
+      }
+    },
+    {
+      "bureau": "Experian",
+      "accountId": "CROSSCOUNTRY_SMALL",
+      "creditor": "CrossCountry Mortgage",
+      "ruleId": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "CROSSCOUNTRY_SMALL",
+        "experianStatus": "30D_LATE",
+        "transunionStatus": "CURRENT",
+        "equifaxStatus": "CURRENT"
+      }
+    },
+    {
+      "bureau": "Experian",
+      "accountId": "MIDFLORIDA_AUTO",
+      "creditor": "MidFlorida Credit Union",
+      "ruleId": "R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "details": {
+        "status": "COLLECTION_CHARGEOFF",
+        "balance": 17360,
+        "pastDueAmount": 17360
+      }
+    },
+    {
+      "bureau": "Experian",
+      "accountId": "GM_FINANCIAL_AUTO",
+      "creditor": "GM Financial",
+      "ruleId": "R2_FCRA_BALANCE_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "GM_FINANCIAL_AUTO",
+        "experianBalance": 11265,
+        "transunionBalance": 0,
+        "equifaxBalance": 11265
+      }
+    },
+    {
+      "bureau": "Experian",
+      "accountId": "GM_FINANCIAL_AUTO",
+      "creditor": "GM Financial",
+      "ruleId": "R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "details": {
+        "status": "COLLECTION_CHARGEOFF",
+        "balance": 11265,
+        "pastDueAmount": 11265
+      }
+    },
+    {
+      "bureau": "Experian",
+      "accountId": "ACHIEVE_PERSONAL_LOAN",
+      "creditor": "Achieve Personal Loans",
+      "ruleId": "R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "details": {
+        "status": "COLLECTION_CHARGEOFF",
+        "balance": 36520,
+        "pastDueAmount": 36520
+      }
+    },
+    {
+      "bureau": "Experian",
+      "accountId": "NEWWAVE_WEBBANK",
+      "creditor": "New Wave Card / WebBank",
+      "ruleId": "R6_FCRA_SOLD_ACCOUNT_STILL_CHARGEOFF_STATUS",
+      "details": {
+        "isOriginalCreditor": true,
+        "balance": 0,
+        "status": "COLLECTION_CHARGEOFF",
+        "remarks": "Purchased by another lender; sold to Jefferson Capital"
+      }
+    },
+
+    {
+      "bureau": "Equifax",
+      "accountId": "CROSSCOUNTRY_PRIMARY",
+      "creditor": "CrossCountry Mortgage",
+      "ruleId": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "CROSSCOUNTRY_PRIMARY",
+        "experianStatus": "180D_LATE",
+        "transunionStatus": "120D_LATE",
+        "equifaxStatus": "120D_LATE"
+      }
+    },
+    {
+      "bureau": "Equifax",
+      "accountId": "CROSSCOUNTRY_SECOND",
+      "creditor": "CrossCountry Mortgage",
+      "ruleId": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "CROSSCOUNTRY_SECOND",
+        "experianStatus": "180D_LATE",
+        "transunionStatus": "120D_LATE",
+        "equifaxStatus": "120D_LATE"
+      }
+    },
+    {
+      "bureau": "Equifax",
+      "accountId": "CROSSCOUNTRY_SMALL",
+      "creditor": "CrossCountry Mortgage",
+      "ruleId": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "CROSSCOUNTRY_SMALL",
+        "experianStatus": "30D_LATE",
+        "transunionStatus": "CURRENT",
+        "equifaxStatus": "CURRENT"
+      }
+    },
+    {
+      "bureau": "Equifax",
+      "accountId": "MIDFLORIDA_AUTO",
+      "creditor": "MidFlorida Credit Union",
+      "ruleId": "R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "details": {
+        "status": "COLLECTION_CHARGEOFF",
+        "balance": 17360,
+        "pastDueAmount": 17360
+      }
+    },
+    {
+      "bureau": "Equifax",
+      "accountId": "GM_FINANCIAL_AUTO",
+      "creditor": "GM Financial",
+      "ruleId": "R2_FCRA_BALANCE_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "GM_FINANCIAL_AUTO",
+        "experianBalance": 11265,
+        "transunionBalance": 0,
+        "equifaxBalance": 11265
+      }
+    },
+    {
+      "bureau": "Equifax",
+      "accountId": "GM_FINANCIAL_AUTO",
+      "creditor": "GM Financial",
+      "ruleId": "R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "details": {
+        "status": "COLLECTION_CHARGEOFF",
+        "balance": 11265,
+        "pastDueAmount": 11265
+      }
+    },
+    {
+      "bureau": "Equifax",
+      "accountId": "ACHIEVE_PERSONAL_LOAN",
+      "creditor": "Achieve Personal Loans",
+      "ruleId": "R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "details": {
+        "status": "COLLECTION_CHARGEOFF",
+        "balance": 36520,
+        "pastDueAmount": 36520
+      }
+    },
+    {
+      "bureau": "Equifax",
+      "accountId": "NEWWAVE_WEBBANK",
+      "creditor": "New Wave Card / WebBank",
+      "ruleId": "R6_FCRA_SOLD_ACCOUNT_STILL_CHARGEOFF_STATUS",
+      "details": {
+        "isOriginalCreditor": true,
+        "balance": 0,
+        "status": "COLLECTION_CHARGEOFF",
+        "remarks": "Purchased by another lender; sold to Jefferson Capital"
+      }
+    },
+
+    {
+      "bureau": "TransUnion",
+      "accountId": "CROSSCOUNTRY_PRIMARY",
+      "creditor": "CrossCountry Mortgage",
+      "ruleId": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "CROSSCOUNTRY_PRIMARY",
+        "experianStatus": "180D_LATE",
+        "transunionStatus": "120D_LATE",
+        "equifaxStatus": "120D_LATE"
+      }
+    },
+    {
+      "bureau": "TransUnion",
+      "accountId": "CROSSCOUNTRY_SECOND",
+      "creditor": "CrossCountry Mortgage",
+      "ruleId": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "CROSSCOUNTRY_SECOND",
+        "experianStatus": "180D_LATE",
+        "transunionStatus": "120D_LATE",
+        "equifaxStatus": "120D_LATE"
+      }
+    },
+    {
+      "bureau": "TransUnion",
+      "accountId": "CROSSCOUNTRY_SMALL",
+      "creditor": "CrossCountry Mortgage",
+      "ruleId": "R1_FCRA_STATUS_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "CROSSCOUNTRY_SMALL",
+        "experianStatus": "30D_LATE",
+        "transunionStatus": "CURRENT",
+        "equifaxStatus": "CURRENT"
+      }
+    },
+    {
+      "bureau": "TransUnion",
+      "accountId": "MIDFLORIDA_AUTO",
+      "creditor": "MidFlorida Credit Union",
+      "ruleId": "R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "details": {
+        "status": "COLLECTION_CHARGEOFF",
+        "balance": 17360,
+        "pastDueAmount": 17360
+      }
+    },
+    {
+      "bureau": "TransUnion",
+      "accountId": "GM_FINANCIAL_AUTO",
+      "creditor": "GM Financial",
+      "ruleId": "R2_FCRA_BALANCE_INCONSISTENT_ACROSS_BUREAUS",
+      "details": {
+        "accountGroupId": "GM_FINANCIAL_AUTO",
+        "experianBalance": 11265,
+        "transunionBalance": 0,
+        "equifaxBalance": 11265
+      }
+    },
+    {
+      "bureau": "TransUnion",
+      "accountId": "ACHIEVE_PERSONAL_LOAN",
+      "creditor": "Achieve Personal Loans",
+      "ruleId": "R3_METRO2_CHARGEOFF_PAST_DUE_NONZERO",
+      "details": {
+        "status": "COLLECTION_CHARGEOFF",
+        "balance": 36520,
+        "pastDueAmount": 36520
+      }
+    },
+    {
+      "bureau": "TransUnion",
+      "accountId": "LVNV_CARECREDIT_OPEN",
+      "creditor": "LVNV Funding (LVNVFUNDG)",
+      "ruleId": "R4_METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT",
+      "details": {
+        "isDebtCollector": true,
+        "accountType": "OPEN",
+        "paymentHistory": "120D_LATE",
+        "balance": 1572
+      }
+    },
+    {
+      "bureau": "TransUnion",
+      "accountId": "LVNV_CARECREDIT_DUPLICATE",
+      "creditor": "LVNV Funding",
+      "ruleId": "R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT",
+      "details": {
+        "collectorName": "LVNV Funding",
+        "originalCreditor": "Synchrony Bank / CareCredit",
+        "duplicateTradelines": [
+          "LVNVFUNDG_OPEN",
+          "LVNV_FUNDING_COLLECTION"
+        ],
+        "balance": 1572
+      }
+    },
+    {
+      "bureau": "TransUnion",
+      "accountId": "ABSOLUTE_RESOLUTIONS_OPEN",
+      "creditor": "Absolute Resolutions I",
+      "ruleId": "R4_METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT",
+      "details": {
+        "isDebtCollector": true,
+        "accountType": "OPEN_OR_UNKNOWN",
+        "paymentHistory": "SERIOUSLY_PAST_DUE",
+        "balance": 3624
+      }
+    },
+    {
+      "bureau": "TransUnion",
+      "accountId": "ABSOLUTE_RESOLUTIONS_DUPLICATE",
+      "creditor": "Absolute Resolutions / ABSRES INV",
+      "ruleId": "R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT",
+      "details": {
+        "collectorName": "Absolute Resolutions",
+        "originalCreditor": "Navy Federal Credit Union",
+        "duplicateTradelines": [
+          "ABSOLUTE_RESOLUTIONS_I",
+          "ABSRES_INV"
+        ],
+        "balance": 3624
+      }
+    },
+    {
+      "bureau": "TransUnion",
+      "accountId": "NEWWAVE_WEBBANK",
+      "creditor": "New Wave Card / WebBank",
+      "ruleId": "R6_FCRA_SOLD_ACCOUNT_STILL_CHARGEOFF_STATUS",
+      "details": {
+        "isOriginalCreditor": true,
+        "balance": 0,
+        "status": "COLLECTION_CHARGEOFF",
+        "remarks": "Purchased by another lender; sold to Jefferson Capital"
+      }
+    }
+  ]
+}

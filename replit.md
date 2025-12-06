@@ -82,6 +82,14 @@ New ReportReview component allows users to:
 - View violation severity and FCRA basis
 - Generate letters for selected violations only
 
+#### Robust Bureau Attribution (December 2025)
+Enhanced multi-bureau violation handling with:
+- **Deep Traversal**: True recursive search of issue objects (up to 15 levels) to find bureau values anywhere in nested structures
+- **Bureau Normalization**: Converts abbreviations (EQ, TU, EX, etc.) and handles both string and object inputs with multiple property name checks (bureau, bureauName, bureauCode, bureauAbbreviation, etc.)
+- **Data Integrity**: Violations without valid bureau attribution are skipped (not defaulted to EQUIFAX) with logging for diagnostics
+- **Multi-Bureau Expansion**: Violations affecting multiple bureaus create separate database records per bureau for accurate letter generation
+- **Frontend Validation**: Checks for undefined bureau before API calls with user-friendly error messages
+
 ### Security & Compliance
 Security measures include bcrypt hashing for user and admin passwords, dual session management with separate HTTPS-only cookies, and CSRF protection. Data protection involves PII redaction and secure one-time action tokens. Payment security is achieved through Stripe's PCI-compliant hosted payment pages.
 

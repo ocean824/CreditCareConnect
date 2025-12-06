@@ -348,7 +348,7 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
       },
       tradelines: (parsed.tradelines || []).map((tl: any) => ({
         id: tl.id || nanoid(),
-        creditorName: tl.creditorName || "Unknown",
+        creditorName: tl.creditorName || tl.accountName || tl.name || "Unknown Account",
         accountNumberLast4: tl.accountNumberLast4,
         type: validateTradelineType(tl.type) || "OTHER",
         status: validateAccountStatus(tl.status) || "UNKNOWN",
@@ -372,7 +372,7 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
       })),
       collections: (parsed.collections || []).map((c: any) => ({
         id: c.id || nanoid(),
-        collectorName: c.collectorName || "Unknown",
+        collectorName: c.collectorName || c.accountName || c.name || c.creditorName || "Unknown Collection",
         originalCreditorName: c.originalCreditorName,
         accountNumberLast4: c.accountNumberLast4,
         status: validateCollectionStatus(c.status) || "UNKNOWN",

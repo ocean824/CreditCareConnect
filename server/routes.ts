@@ -1070,16 +1070,181 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
 
         // Update credit report with analysis results (for backwards compatibility)
+        // For multi-bureau violations, create a violation record for each affected bureau
+        
+        // Valid bureau names
+        const VALID_BUREAUS = ['EQUIFAX', 'TRANSUNION', 'EXPERIAN'];
+        
+        // Helper to convert abbreviations/aliases to standard bureau names
+        const mapToStandardBureau = (val: string): string | null => {
+          const upper = val.toUpperCase().trim();
+          if (VALID_BUREAUS.includes(upper)) return upper;
+          // Handle common abbreviations and aliases
+          if (['EQ', 'EQX', 'EQUI', 'EFX'].includes(upper)) return 'EQUIFAX';
+          if (['TU', 'TUC', 'TRANS', 'TRU'].includes(upper)) return 'TRANSUNION';
+          if (['EX', 'EXP', 'EXPER', 'XPN'].includes(upper)) return 'EXPERIAN';
+          return null;
+        };
+        
+        // Helper to normalize a single bureau value (string or deeply nested object) to valid bureau name
+        const normalizeBureauValue = (val: any, depth: number = 0): string | null => {
+          // Prevent infinite recursion
+          if (depth > 10 || val === undefined || val === null) return null;
+          
+          // Handle strings directly
+          if (typeof val === 'string') {
+            return mapToStandardBureau(val);
+          }
+          
+          // Handle arrays - collect all unique bureaus
+          if (Array.isArray(val)) {
+            for (const item of val) {
+              const result = normalizeBureauValue(item, depth + 1);
+              if (result) return result;
+            }
+            return null;
+          }
+          
+          // Handle objects - try all common property names for bureau
+          if (typeof val === 'object') {
+            // Comprehensive list of all possible property names that might contain bureau info
+            const propertyNames = [
+              'bureau', 'bureauName', 'bureauAbbreviation', 'bureauCode', 'bureauAbbrev',
+              'name', 'code', 'abbreviation', 'reportingBureau', 'abbrev',
+              // Try to extract any string values from the object
+            ];
+            
+            for (const prop of propertyNames) {
+              if (val[prop] !== undefined) {
+                const result = normalizeBureauValue(val[prop], depth + 1);
+                if (result) return result;
+              }
+            }
+            
+            // As a last resort, check all string values in the object
+            for (const key of Object.keys(val)) {
+              const v = val[key];
+              if (typeof v === 'string') {
+                const result = mapToStandardBureau(v);
+                if (result) return result;
+              }
+            }
+            return null;
+          }
+          
+          return null;
+        };
+        
+        // True deep traversal to find ALL bureau values in any nested structure
+        const deepFindBureaus = (obj: any, found: Set<string>, depth: number = 0): void => {
+          if (depth > 15 || !obj) return;
+          
+          if (typeof obj === 'string') {
+            const normalized = mapToStandardBureau(obj);
+            if (normalized) found.add(normalized);
+            return;
+          }
+          
+          if (Array.isArray(obj)) {
+            for (const item of obj) {
+              deepFindBureaus(item, found, depth + 1);
+            }
+            return;
+          }
+          
+          if (typeof obj === 'object') {
+            for (const key of Object.keys(obj)) {
+              deepFindBureaus(obj[key], found, depth + 1);
+            }
+          }
+        };
+        
+        // Helper to extract bureaus from issue with robust fallback chain
+        const extractBureausFromIssue = (issue: any, fallbackBureau: string): string[] => {
+          const candidates: string[] = [];
+          
+          // 1. Primary: affectedBureaus array
+          if (issue.affectedBureaus && Array.isArray(issue.affectedBureaus)) {
+            for (const b of issue.affectedBureaus) {
+              const normalized = normalizeBureauValue(b);
+              if (normalized) candidates.push(normalized);
+            }
+          }
+          if (candidates.length > 0) return [...new Set(candidates)];
+          
+          const details = issue.details || {};
+          
+          // 2. Fallback: details.bureau (single bureau)
+          if (details.bureau) {
+            const normalized = normalizeBureauValue(details.bureau);
+            if (normalized) return [normalized];
+          }
+          
+          // 3. Fallback: details.accountBureaus (array - may contain strings or objects)
+          if (details.accountBureaus && Array.isArray(details.accountBureaus)) {
+            for (const b of details.accountBureaus) {
+              const normalized = normalizeBureauValue(b);
+              if (normalized) candidates.push(normalized);
+            }
+          }
+          if (candidates.length > 0) return [...new Set(candidates)];
+          
+          // 4. Fallback: extract from details.bureauSnapshots (array of objects)
+          if (details.bureauSnapshots && Array.isArray(details.bureauSnapshots)) {
+            for (const bs of details.bureauSnapshots) {
+              const normalized = normalizeBureauValue(bs);
+              if (normalized) candidates.push(normalized);
+            }
+          }
+          if (candidates.length > 0) return [...new Set(candidates)];
+          
+          // 5. True deep traversal of entire issue object
+          const deepFound = new Set<string>();
+          deepFindBureaus(issue, deepFound);
+          if (deepFound.size > 0) return [...deepFound];
+          
+          // 6. Final fallback: report-level bureau only if it's a valid single-bureau report
+          const fallbackNormalized = normalizeBureauValue(fallbackBureau);
+          if (fallbackNormalized) {
+            return [fallbackNormalized];
+          }
+          
+          // Return empty array - caller should skip this violation
+          return [];
+        };
+        
+        const expandedViolations: any[] = [];
+        let skippedIssues = 0;
+        for (const issue of analysisResult.issues) {
+          const bureaus = extractBureausFromIssue(issue, bureau || "");
+          
+          // Skip issues that couldn't be attributed to any bureau
+          if (bureaus.length === 0) {
+            console.warn(`⚠️  Skipping issue "${issue.category}" - no valid bureau could be determined`);
+            skippedIssues++;
+            continue;
+          }
+          
+          for (const issueBureau of bureaus) {
+            // Already normalized by extractBureausFromIssue
+            expandedViolations.push({
+              accountName: (issue.details as any)?.accountName || (issue.details as any)?.creditorName || (issue.details as any)?.collectorName || "Account",
+              accountNumber: issue.affectedIds[0] || "N/A",
+              bureau: issueBureau,
+              violationType: issue.category,
+              description: issue.descriptionMachine,
+              statute: issue.statutes.join(", "),
+              severity: issue.severity,
+            });
+          }
+        }
+        
+        if (skippedIssues > 0) {
+          console.warn(`⚠️  Skipped ${skippedIssues} issues due to missing bureau attribution`);
+        }
+        
         const legacyAnalysis = {
-          violations: analysisResult.issues.slice(0, 10).map(issue => ({
-            accountName: (issue.details as any).accountName || "Account",
-            accountNumber: issue.affectedIds[0] || "N/A",
-            bureau: issue.affectedBureaus?.[0] || bureau || "EQUIFAX",
-            violationType: issue.category,
-            description: issue.descriptionMachine,
-            statute: issue.statutes.join(", "),
-            severity: issue.severity,
-          })),
+          violations: expandedViolations,
           summary: analysisResult.summary,
         };
         
@@ -1357,17 +1522,137 @@ export async function registerRoutes(app: Express): Promise<Server> {
             analysisResult.aiExplanations.length
           );
 
-          // Create legacy violation records
+          // Create legacy violation records - expand multi-bureau violations
+          // Valid bureau names
+          const VALID_BUREAUS = ['EQUIFAX', 'TRANSUNION', 'EXPERIAN'];
+          
+          // Helper to convert abbreviations/aliases to standard bureau names
+          const mapToStandardBureau = (val: string): string | null => {
+            const upper = val.toUpperCase().trim();
+            if (VALID_BUREAUS.includes(upper)) return upper;
+            if (['EQ', 'EQX', 'EQUI', 'EFX'].includes(upper)) return 'EQUIFAX';
+            if (['TU', 'TUC', 'TRANS', 'TRU'].includes(upper)) return 'TRANSUNION';
+            if (['EX', 'EXP', 'EXPER', 'XPN'].includes(upper)) return 'EXPERIAN';
+            return null;
+          };
+          
+          // Helper to normalize a single bureau value (string or deeply nested object) to valid bureau name
+          const normalizeBureauValue = (val: any, depth: number = 0): string | null => {
+            if (depth > 10 || val === undefined || val === null) return null;
+            if (typeof val === 'string') return mapToStandardBureau(val);
+            if (Array.isArray(val)) {
+              for (const item of val) {
+                const result = normalizeBureauValue(item, depth + 1);
+                if (result) return result;
+              }
+              return null;
+            }
+            if (typeof val === 'object') {
+              const propertyNames = ['bureau', 'bureauName', 'bureauAbbreviation', 'bureauCode', 'bureauAbbrev', 'name', 'code', 'abbreviation', 'reportingBureau', 'abbrev'];
+              for (const prop of propertyNames) {
+                if (val[prop] !== undefined) {
+                  const result = normalizeBureauValue(val[prop], depth + 1);
+                  if (result) return result;
+                }
+              }
+              for (const key of Object.keys(val)) {
+                const v = val[key];
+                if (typeof v === 'string') {
+                  const result = mapToStandardBureau(v);
+                  if (result) return result;
+                }
+              }
+              return null;
+            }
+            return null;
+          };
+          
+          // True deep traversal to find ALL bureau values in any nested structure
+          const deepFindBureaus = (obj: any, found: Set<string>, depth: number = 0): void => {
+            if (depth > 15 || !obj) return;
+            if (typeof obj === 'string') {
+              const normalized = mapToStandardBureau(obj);
+              if (normalized) found.add(normalized);
+              return;
+            }
+            if (Array.isArray(obj)) {
+              for (const item of obj) deepFindBureaus(item, found, depth + 1);
+              return;
+            }
+            if (typeof obj === 'object') {
+              for (const key of Object.keys(obj)) deepFindBureaus(obj[key], found, depth + 1);
+            }
+          };
+          
+          // Helper to extract bureaus from issue with robust fallback chain
+          const extractBureausFromIssue = (issue: any, fallbackBureau: string): string[] => {
+            const candidates: string[] = [];
+            if (issue.affectedBureaus && Array.isArray(issue.affectedBureaus)) {
+              for (const b of issue.affectedBureaus) {
+                const normalized = normalizeBureauValue(b);
+                if (normalized) candidates.push(normalized);
+              }
+            }
+            if (candidates.length > 0) return [...new Set(candidates)];
+            const details = issue.details || {};
+            if (details.bureau) {
+              const normalized = normalizeBureauValue(details.bureau);
+              if (normalized) return [normalized];
+            }
+            if (details.accountBureaus && Array.isArray(details.accountBureaus)) {
+              for (const b of details.accountBureaus) {
+                const normalized = normalizeBureauValue(b);
+                if (normalized) candidates.push(normalized);
+              }
+            }
+            if (candidates.length > 0) return [...new Set(candidates)];
+            if (details.bureauSnapshots && Array.isArray(details.bureauSnapshots)) {
+              for (const bs of details.bureauSnapshots) {
+                const normalized = normalizeBureauValue(bs);
+                if (normalized) candidates.push(normalized);
+              }
+            }
+            if (candidates.length > 0) return [...new Set(candidates)];
+            // True deep traversal as last resort
+            const deepFound = new Set<string>();
+            deepFindBureaus(issue, deepFound);
+            if (deepFound.size > 0) return [...deepFound];
+            // Final fallback: report-level bureau only
+            const fallbackNormalized = normalizeBureauValue(fallbackBureau);
+            if (fallbackNormalized) return [fallbackNormalized];
+            return [];
+          };
+          
+          const expandedViolations: any[] = [];
+          let skippedIssues = 0;
+          for (const issue of analysisResult.issues) {
+            const bureaus = extractBureausFromIssue(issue, creditReport.bureau || "");
+            
+            if (bureaus.length === 0) {
+              console.warn(`⚠️  Skipping issue "${issue.category}" - no valid bureau could be determined`);
+              skippedIssues++;
+              continue;
+            }
+            
+            for (const issueBureau of bureaus) {
+              expandedViolations.push({
+                accountName: (issue.details as any)?.accountName || (issue.details as any)?.creditorName || (issue.details as any)?.collectorName || "Account",
+                accountNumber: issue.affectedIds[0] || "N/A",
+                bureau: issueBureau,
+                violationType: issue.category,
+                description: issue.descriptionMachine,
+                statute: issue.statutes.join(", "),
+                severity: issue.severity,
+              });
+            }
+          }
+          
+          if (skippedIssues > 0) {
+            console.warn(`⚠️  Skipped ${skippedIssues} issues due to missing bureau attribution`);
+          }
+          
           const legacyAnalysis = {
-            violations: analysisResult.issues.slice(0, 10).map(issue => ({
-              accountName: (issue.details as any).accountName || "Account",
-              accountNumber: issue.affectedIds[0] || "N/A",
-              bureau: issue.affectedBureaus?.[0] || creditReport.bureau || "EQUIFAX",
-              violationType: issue.category,
-              description: issue.descriptionMachine,
-              statute: issue.statutes.join(", "),
-              severity: issue.severity,
-            })),
+            violations: expandedViolations,
             summary: analysisResult.summary,
           };
           
@@ -1585,17 +1870,137 @@ export async function registerRoutes(app: Express): Promise<Server> {
           analysisResult.aiExplanations.length
         );
 
-        // Create legacy violation records
+        // Create legacy violation records - expand multi-bureau violations
+        // Valid bureau names
+        const VALID_BUREAUS = ['EQUIFAX', 'TRANSUNION', 'EXPERIAN'];
+        
+        // Helper to convert abbreviations/aliases to standard bureau names
+        const mapToStandardBureau = (val: string): string | null => {
+          const upper = val.toUpperCase().trim();
+          if (VALID_BUREAUS.includes(upper)) return upper;
+          if (['EQ', 'EQX', 'EQUI', 'EFX'].includes(upper)) return 'EQUIFAX';
+          if (['TU', 'TUC', 'TRANS', 'TRU'].includes(upper)) return 'TRANSUNION';
+          if (['EX', 'EXP', 'EXPER', 'XPN'].includes(upper)) return 'EXPERIAN';
+          return null;
+        };
+        
+        // Helper to normalize a single bureau value (string or deeply nested object) to valid bureau name
+        const normalizeBureauValue = (val: any, depth: number = 0): string | null => {
+          if (depth > 10 || val === undefined || val === null) return null;
+          if (typeof val === 'string') return mapToStandardBureau(val);
+          if (Array.isArray(val)) {
+            for (const item of val) {
+              const result = normalizeBureauValue(item, depth + 1);
+              if (result) return result;
+            }
+            return null;
+          }
+          if (typeof val === 'object') {
+            const propertyNames = ['bureau', 'bureauName', 'bureauAbbreviation', 'bureauCode', 'bureauAbbrev', 'name', 'code', 'abbreviation', 'reportingBureau', 'abbrev'];
+            for (const prop of propertyNames) {
+              if (val[prop] !== undefined) {
+                const result = normalizeBureauValue(val[prop], depth + 1);
+                if (result) return result;
+              }
+            }
+            for (const key of Object.keys(val)) {
+              const v = val[key];
+              if (typeof v === 'string') {
+                const result = mapToStandardBureau(v);
+                if (result) return result;
+              }
+            }
+            return null;
+          }
+          return null;
+        };
+        
+        // True deep traversal to find ALL bureau values in any nested structure
+        const deepFindBureaus = (obj: any, found: Set<string>, depth: number = 0): void => {
+          if (depth > 15 || !obj) return;
+          if (typeof obj === 'string') {
+            const normalized = mapToStandardBureau(obj);
+            if (normalized) found.add(normalized);
+            return;
+          }
+          if (Array.isArray(obj)) {
+            for (const item of obj) deepFindBureaus(item, found, depth + 1);
+            return;
+          }
+          if (typeof obj === 'object') {
+            for (const key of Object.keys(obj)) deepFindBureaus(obj[key], found, depth + 1);
+          }
+        };
+        
+        // Helper to extract bureaus from issue with robust fallback chain
+        const extractBureausFromIssue = (issue: any, fallbackBureau: string): string[] => {
+          const candidates: string[] = [];
+          if (issue.affectedBureaus && Array.isArray(issue.affectedBureaus)) {
+            for (const b of issue.affectedBureaus) {
+              const normalized = normalizeBureauValue(b);
+              if (normalized) candidates.push(normalized);
+            }
+          }
+          if (candidates.length > 0) return [...new Set(candidates)];
+          const details = issue.details || {};
+          if (details.bureau) {
+            const normalized = normalizeBureauValue(details.bureau);
+            if (normalized) return [normalized];
+          }
+          if (details.accountBureaus && Array.isArray(details.accountBureaus)) {
+            for (const b of details.accountBureaus) {
+              const normalized = normalizeBureauValue(b);
+              if (normalized) candidates.push(normalized);
+            }
+          }
+          if (candidates.length > 0) return [...new Set(candidates)];
+          if (details.bureauSnapshots && Array.isArray(details.bureauSnapshots)) {
+            for (const bs of details.bureauSnapshots) {
+              const normalized = normalizeBureauValue(bs);
+              if (normalized) candidates.push(normalized);
+            }
+          }
+          if (candidates.length > 0) return [...new Set(candidates)];
+          // True deep traversal as last resort
+          const deepFound = new Set<string>();
+          deepFindBureaus(issue, deepFound);
+          if (deepFound.size > 0) return [...deepFound];
+          // Final fallback: report-level bureau only
+          const fallbackNormalized = normalizeBureauValue(fallbackBureau);
+          if (fallbackNormalized) return [fallbackNormalized];
+          return [];
+        };
+        
+        const expandedViolations: any[] = [];
+        let skippedIssues = 0;
+        for (const issue of analysisResult.issues) {
+          const bureaus = extractBureausFromIssue(issue, creditReport.bureau || "");
+          
+          if (bureaus.length === 0) {
+            console.warn(`⚠️  Skipping issue "${issue.category}" - no valid bureau could be determined`);
+            skippedIssues++;
+            continue;
+          }
+          
+          for (const issueBureau of bureaus) {
+            expandedViolations.push({
+              accountName: (issue.details as any)?.accountName || (issue.details as any)?.creditorName || (issue.details as any)?.collectorName || "Account",
+              accountNumber: issue.affectedIds[0] || "N/A",
+              bureau: issueBureau,
+              violationType: issue.category,
+              description: issue.descriptionMachine,
+              statute: issue.statutes.join(", "),
+              severity: issue.severity,
+            });
+          }
+        }
+        
+        if (skippedIssues > 0) {
+          console.warn(`⚠️  Skipped ${skippedIssues} issues due to missing bureau attribution`);
+        }
+        
         const legacyAnalysis = {
-          violations: analysisResult.issues.slice(0, 10).map(issue => ({
-            accountName: (issue.details as any).accountName || "Account",
-            accountNumber: issue.affectedIds[0] || "N/A",
-            bureau: issue.affectedBureaus?.[0] || creditReport.bureau || "EQUIFAX",
-            violationType: issue.category,
-            description: issue.descriptionMachine,
-            statute: issue.statutes.join(", "),
-            severity: issue.severity,
-          })),
+          violations: expandedViolations,
           summary: analysisResult.summary,
         };
         
@@ -1615,7 +2020,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
         
-        console.log(`✅ Force re-analysis completed for ${creditReport.id}: ${analysisResult.issues.length} violations found`);
+        console.log(`✅ Force re-analysis completed for ${creditReport.id}: ${expandedViolations.length} violations found`);
         
         res.json({ 
           success: true,
@@ -2017,8 +2422,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       
       // Validate input - now supports round and recipientType
+      // Accept both upper and mixed case bureau names
       const generateLetterSchema = z.object({
-        bureau: z.enum(['EQUIFAX', 'TRANSUNION', 'EXPERIAN']),
+        bureau: z.enum(['EQUIFAX', 'TRANSUNION', 'EXPERIAN', 'Equifax', 'TransUnion', 'Experian']),
         violationIds: z.array(z.string()).min(1, "At least one violation must be selected"),
         round: z.number().int().min(1).max(3).optional().default(1),
         recipientType: z.enum(['BUREAU', 'COLLECTOR']).optional().default('BUREAU'),
@@ -2029,7 +2435,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       const validatedData = generateLetterSchema.parse(req.body);
-      const { bureau, violationIds, round, recipientType, recipientName, priorDisputeDate, craResponseDate, reportDate } = validatedData;
+      // Normalize bureau to uppercase
+      const bureau = validatedData.bureau.toUpperCase() as 'EQUIFAX' | 'TRANSUNION' | 'EXPERIAN';
+      const { violationIds, round, recipientType, recipientName, priorDisputeDate, craResponseDate, reportDate } = validatedData;
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });

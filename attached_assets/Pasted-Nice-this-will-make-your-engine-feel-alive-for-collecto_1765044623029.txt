@@ -1,0 +1,348 @@
+Nice, this will make your engine feel “alive” for collectors.
+
+I’ll do two things:
+
+Absolute Resolutions (Navy FCU) example with R4 + R5 firing together.
+
+A Fastify-style /api/issues/analyze endpoint that runs all rules and returns AiIssueExplanation[] + letter sections in one shot.
+
+1️⃣ Absolute Resolutions (Navy FCU) – TU example
+
+We’ll model the TransUnion situation exactly like your report:
+
+One tradeline coded like a trade/open account with serious lates (ABSOLUTE RESOLUTIONS I).
+
+One tradeline coded as a proper collection (ABSRES INV).
+
+That’s what triggers:
+
+R4 – collector mis-coded as “open trade with lates”.
+
+R5 – duplicate collection for same debt on the same bureau.
+
+1.1. Tradeline[] input for Absolute Resolutions (TU)
+import { Tradeline } from './rules.types';
+
+const absTradelines: Tradeline[] = [
+  {
+    id: 'abs_open_tu',
+    accountGroupId: 'ABS_RES_NFCU',
+    bureau: 'TransUnion',
+    creditorName: 'ABSOLUTE RESOLUTIONS I',
+    originalCreditorName: 'NAVY FEDERAL CREDIT UNION',
+    isDebtCollector: true,
+    isOriginalCreditor: false,
+    accountType: 'OPEN',                  // trade-like, not collection
+    status: 'LATE_120_PLUS',              // coded like a standard late account
+    balance: 3624,
+    pastDueAmount: 3624,
+    openedDate: '2023-06-01',
+    closedDate: null,
+    dateOfFirstDelinquency: '2022-11-01',
+    lastPaymentDate: '2022-10-15',
+    isMarkedAsDisputed: true,
+    consumerRemarkRaw: 'Account information disputed by consumer',
+    remarks: [
+      'Seriously past due',
+      'Assigned to collection/attorney'
+    ],
+    paymentHistoryWorst: 'LATE_120_PLUS',
+    extra: {
+      iiqRawType: 'Open Account / Collection',
+      reportSource: 'IdentityIQ 2025-11-24'
+    }
+  },
+  {
+    id: 'abs_coll_tu',
+    accountGroupId: 'ABS_RES_NFCU',
+    bureau: 'TransUnion',
+    creditorName: 'ABSRES INV',           // same collector family
+    originalCreditorName: 'NAVY FEDERAL CREDIT UNION',
+    isDebtCollector: true,
+    isOriginalCreditor: false,
+    accountType: 'COLLECTION',            // proper collection type
+    status: 'COLLECTION_CHARGEOFF',
+    balance: 3624,
+    pastDueAmount: 0,                     // typical for a collection
+    openedDate: '2023-06-01',
+    closedDate: null,
+    dateOfFirstDelinquency: '2022-11-01',
+    lastPaymentDate: '2022-10-15',
+    isMarkedAsDisputed: true,
+    consumerRemarkRaw: 'Account information disputed by consumer',
+    remarks: ['Collection account'],
+    paymentHistoryWorst: 'LATE_120_PLUS',
+    extra: {
+      iiqRawType: 'Collection',
+      reportSource: 'IdentityIQ 2025-11-24'
+    }
+  }
+];
+
+1.2. Run the rules engine
+import { runAllRulesForReport } from './rules.engine';
+
+const absResult = runAllRulesForReport(absTradelines);
+
+1.3. Exact detections for Absolute Resolutions
+
+The engine will output:
+
+const absResult = {
+  totalsByBureau: {
+    Experian: 0,
+    Equifax: 0,
+    TransUnion: 3
+  },
+  detections: [
+    // R4 – collector mis-coded as open trade with lates
+    {
+      bureau: 'TransUnion',
+      accountId: 'abs_open_tu',
+      creditor: 'ABSOLUTE RESOLUTIONS I',
+      ruleId: 'R4_METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT',
+      details: {
+        isDebtCollector: true,
+        accountType: 'OPEN',
+        paymentHistoryWorst: 'LATE_120_PLUS',
+        note: 'Third-party collector appears to be coded as an open trade with lates instead of a collection.'
+      }
+    },
+
+    // R5 – duplicate collection same debt (applied to abs_open_tu)
+    {
+      bureau: 'TransUnion',
+      accountId: 'abs_open_tu',
+      creditor: 'ABSOLUTE RESOLUTIONS I',
+      ruleId: 'R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT',
+      details: {
+        collectorName: 'ABSOLUTE RESOLUTIONS I',
+        originalCreditor: 'NAVY FEDERAL CREDIT UNION',
+        balance: 3624,
+        duplicateTradelines: ['abs_open_tu', 'abs_coll_tu'],
+        note: 'Same collection appears multiple times on this bureau, which can be misleading under FCRA.'
+      }
+    },
+
+    // R5 – duplicate collection same debt (applied to abs_coll_tu)
+    {
+      bureau: 'TransUnion',
+      accountId: 'abs_coll_tu',
+      creditor: 'ABSRES INV',
+      ruleId: 'R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT',
+      details: {
+        collectorName: 'ABSRES INV',
+        originalCreditor: 'NAVY FEDERAL CREDIT UNION',
+        balance: 3624,
+        duplicateTradelines: ['abs_open_tu', 'abs_coll_tu'],
+        note: 'Same collection appears multiple times on this bureau, which can be misleading under FCRA.'
+      }
+    }
+  ]
+};
+
+
+So for Absolute Resolutions on TU:
+
+R4 fires once (bad Metro 2 “trade vs collection” coding).
+
+R5 fires twice (duplicate collection entries for the same NFCU debt).
+
+2️⃣ From detections → AiIssueExplanation → letter sections
+
+We’ll reuse the mapping and grouping code from the LVNV example.
+
+2.1. Map detections → AiIssueExplanation
+import { RuleDetection } from './rules.types';
+import { AiIssueExplanation } from './ai.types';
+import { detectionToAiIssueExplanation } from './ai.explanations';
+
+const absExplanations: AiIssueExplanation[] = absResult.detections.map((d) =>
+  detectionToAiIssueExplanation(d)
+);
+
+
+For the Absolute Resolutions detections, you’ll get explanations like:
+
+For R4 on abs_open_tu:
+
+{
+  ruleId: 'R4_METRO2_COLLECTION_REPORTED_AS_OPEN_ACCOUNT',
+  bureau: 'TransUnion',
+  accountId: 'abs_open_tu',
+  creditor: 'ABSOLUTE RESOLUTIONS I',
+  shortTitle: 'Collector mis-coded as open account',
+  summary: 'This Absolute Resolutions tradeline is a third-party collection but is coded as an open account with late payments instead of a collection.',
+  lawCitations: ['FCRA 15 U.S.C. § 1681e(b)', 'Metro 2 trade vs. collection coding'],
+  severity: 'medium',
+  letterReasonSentence:
+    'Absolute Resolutions is reporting this debt as an “open” account with late payments even though it is actually a third-party collection, which is misleading and not consistent with industry Metro 2 coding.',
+  letterParagraph:
+    'Absolute Resolutions is a third-party debt collector, but on my TransUnion report this tradeline is coded as an open account with 120-day late payments instead of being reported solely as a collection account. That misclassification is misleading and inconsistent with standard Metro 2 reporting guidelines for third-party collections, and it does not meet the FCRA’s requirement of maximum possible accuracy.'
+}
+
+
+For R5 on abs_open_tu / abs_coll_tu (similar to the LVNV R5 explanation, but with Absolute / NFCU names plugged in):
+
+{
+  ruleId: 'R5_FCRA_DUPLICATE_COLLECTION_SAME_DEBT',
+  bureau: 'TransUnion',
+  accountId: 'abs_open_tu', // or abs_coll_tu
+  creditor: 'ABSOLUTE RESOLUTIONS I', // or ABSRES INV
+  shortTitle: 'Duplicate collection for same debt',
+  summary:
+    'This debt is being reported more than once on the same bureau by the same collector for the same original creditor and balance.',
+  lawCitations: ['FCRA 15 U.S.C. § 1681e(b)'],
+  severity: 'high',
+  letterReasonSentence:
+    'Absolute Resolutions is reporting the same Navy Federal Credit Union collection account more than once on the same credit report, which unfairly doubles the negative impact of a single alleged debt.',
+  letterParagraph:
+    'Absolute Resolutions is reporting the same Navy Federal Credit Union collection account for approximately $3,624 more than once on my TransUnion file. These duplicate tradelines appear to represent a single alleged obligation but show up as separate derogatory accounts. Reporting the same debt multiple times is misleading and does not satisfy the FCRA requirement that consumer reports be prepared with maximum possible accuracy. One of these entries should be removed so that only a single, accurate tradeline remains, if any.'
+}
+
+2.2. Build letter sections for TransUnion
+import { buildLetterSectionsForBureau } from './ai.grouping';
+
+const absSectionsTU = buildLetterSectionsForBureau(
+  'TransUnion',
+  absResult.detections
+);
+
+
+For Absolute Resolutions, you’ll end up with an AccountLetterSection that looks like:
+
+[
+  {
+    bureau: 'TransUnion',
+    accountId: 'abs_open_tu', // or whichever you group on
+    creditor: 'ABSOLUTE RESOLUTIONS I',
+    shortHeader: 'ABSOLUTE RESOLUTIONS I – multiple reporting issues detected',
+    reasons: [
+      // from R4
+      'Absolute Resolutions is reporting this debt as an “open” account with late payments even though it is actually a third-party collection, which is misleading and not consistent with industry Metro 2 coding.',
+      // from R5
+      'Absolute Resolutions is reporting the same Navy Federal Credit Union collection account more than once on the same credit report, which unfairly doubles the negative impact of a single alleged debt.'
+    ],
+    paragraphs: [
+      // from R4
+      'Absolute Resolutions is a third-party debt collector, but on my TransUnion report this tradeline is coded as an open account with 120-day late payments instead of being reported solely as a collection account. That misclassification is misleading and inconsistent with standard Metro 2 reporting guidelines for third-party collections, and it does not meet the FCRA’s requirement of maximum possible accuracy.',
+      // from R5
+      'Absolute Resolutions is reporting the same Navy Federal Credit Union collection account for approximately $3,624 more than once on my TransUnion file. These duplicate tradelines appear to represent a single alleged obligation but show up as separate derogatory accounts. Reporting the same debt multiple times is misleading and does not satisfy the FCRA requirement that consumer reports be prepared with maximum possible accuracy. One of these entries should be removed so that only a single, accurate tradeline remains, if any.'
+    ]
+  }
+];
+
+
+This can be dropped directly into your TU dispute letter under an “Absolute Resolutions / Navy Federal” item.
+
+3️⃣ Wire everything into /api/issues/analyze
+
+Now we expose one API endpoint that:
+
+Accepts parsed tradelines for a report.
+
+Runs all rules.
+
+Returns:
+
+totalsByBureau
+
+Raw detections
+
+Flat AiIssueExplanation[]
+
+Per-bureau AccountLetterSection[] for easy letter generation.
+
+3.1. Request/response types
+// api/issues.types.ts
+import {
+  BureauId,
+  RuleDetection,
+  Tradeline
+} from '../rules/rules.types';
+import { AiIssueExplanation } from '../ai/ai.types';
+import { AccountLetterSection } from '../ai.grouping';
+
+export interface AnalyzeIssuesRequest {
+  // You can also send reportId and load tradelines server-side, but this is simplest.
+  tradelines: Tradeline[];
+}
+
+export interface AnalyzeIssuesResponse {
+  totalsByBureau: Record<BureauId, number>;
+  detections: RuleDetection[];
+  explanations: AiIssueExplanation[];
+  sectionsByBureau: Record<BureauId, AccountLetterSection[]>;
+}
+
+3.2. Fastify route: /api/issues/analyze
+// api/issues.routes.ts
+import { FastifyInstance } from 'fastify';
+import { AnalyzeIssuesRequest, AnalyzeIssuesResponse } from './issues.types';
+import { runAllRulesForReport } from '../rules/rules.engine';
+import { detectionToAiIssueExplanation } from '../ai/ai.explanations';
+import { buildLetterSectionsForBureau } from '../ai.grouping';
+import { BureauId } from '../rules/rules.types';
+
+export async function registerIssuesRoutes(fastify: FastifyInstance) {
+  fastify.post<{
+    Body: AnalyzeIssuesRequest;
+    Reply: AnalyzeIssuesResponse;
+  }>('/api/issues/analyze', async (request, reply) => {
+    const { tradelines } = request.body;
+
+    // 1) Run the rules engine
+    const { totalsByBureau, detections } = runAllRulesForReport(tradelines);
+
+    // 2) Map detections → AI explanations
+    const explanations = detections.map(detection =>
+      detectionToAiIssueExplanation(detection)
+    );
+
+    // 3) Build letter sections by bureau
+    const bureaus: BureauId[] = ['Experian', 'Equifax', 'TransUnion'];
+    const sectionsByBureau = {} as AnalyzeIssuesResponse['sectionsByBureau'];
+
+    for (const bureau of bureaus) {
+      sectionsByBureau[bureau] = buildLetterSectionsForBureau(
+        bureau,
+        detections
+      );
+    }
+
+    const response: AnalyzeIssuesResponse = {
+      totalsByBureau,
+      detections,
+      explanations,
+      sectionsByBureau
+    };
+
+    return reply.status(200).send(response);
+  });
+}
+
+3.3. Frontend usage sketch
+
+From your React app (or your letter-generator):
+
+async function analyzeIssues(tradelines: Tradeline[]) {
+  const res = await fetch('/api/issues/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tradelines })
+  });
+
+  if (!res.ok) throw new Error('Issue analysis failed');
+
+  const data = (await res.json()) as AnalyzeIssuesResponse;
+
+  // Example usages:
+  // - Show summary counts on dashboard
+  console.log(data.totalsByBureau);
+
+  // - Feed explanations into UI tabs
+  console.log(data.explanations);
+
+  // - Feed sectionsByBureau['TransUnion'] into your TU dispute letter generator
+  console.log(data.sectionsByBureau.TransUnion);
+}

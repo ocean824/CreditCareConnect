@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import Navigation from "@/components/Navigation";
 import { DocumentHistoryPanel } from "@/components/DocumentHistoryPanel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, TrendingUp, Shield, DollarSign, Target, Trash2, RefreshCw, Bug } from "lucide-react";
+import { AlertCircle, TrendingUp, Shield, DollarSign, Target, Trash2, RefreshCw, Bug, FileText, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
@@ -14,11 +15,62 @@ import type { CreditReport, Violation } from "@shared/schema";
 
 export default function Analysis() {
   const { user, isLoading } = useAuth();
+  const [, navigate] = useLocation();
   const [viewingDocument, setViewingDocument] = useState<any>(null);
   const [reanalyzing, setReanalyzing] = useState<string | null>(null);
   const [diagnosticResults, setDiagnosticResults] = useState<any>(null);
   const [runningDiagnostic, setRunningDiagnostic] = useState(false);
+  const [generatingLetter, setGeneratingLetter] = useState<string | null>(null);
   const { toast } = useToast();
+
+  const handleGenerateLetter = async (violation: Violation) => {
+    setGeneratingLetter(violation.id);
+    try {
+      // Validate and normalize bureau to uppercase for API validation
+      if (!violation.bureau) {
+        toast({
+          title: "Missing Bureau",
+          description: "This violation doesn't have a bureau assigned. Please re-analyze the report.",
+          variant: "destructive",
+        });
+        setGeneratingLetter(null);
+        return;
+      }
+      
+      const normalizedBureau = violation.bureau.toUpperCase() as 'EQUIFAX' | 'TRANSUNION' | 'EXPERIAN';
+      
+      const response = await apiRequest('POST', '/api/dispute-letters/generate', {
+        bureau: normalizedBureau,
+        violationIds: [violation.id],
+        round: 1,
+        recipientType: 'BUREAU'
+      });
+      
+      if (response.ok) {
+        toast({
+          title: "Letter Generated",
+          description: `Dispute letter for ${violation.accountName || 'account'} created successfully`,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/dispute-letters"] });
+        navigate("/letters");
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        toast({
+          title: "Letter Generation Failed",
+          description: errorData.message || "Could not generate dispute letter",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Letter Generation Failed",
+        description: error.message || "Could not generate dispute letter",
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingLetter(null);
+    }
+  };
 
   const runDiagnostic = async () => {
     setRunningDiagnostic(true);
@@ -295,8 +347,17 @@ export default function Analysis() {
                             variant="link" 
                             className="text-primary h-auto p-0"
                             data-testid={`button-generate-letter-${violation.id}`}
+                            onClick={() => handleGenerateLetter(violation)}
+                            disabled={generatingLetter === violation.id}
                           >
-                            Generate Letter
+                            {generatingLetter === violation.id ? (
+                              <>
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                Generating...
+                              </>
+                            ) : (
+                              "Generate Letter"
+                            )}
                           </Button>
                         </td>
                       </tr>
