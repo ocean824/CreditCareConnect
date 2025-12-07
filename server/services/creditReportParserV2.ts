@@ -249,7 +249,11 @@ async function parseWithRetry(
   isRetry: boolean = false
 ): Promise<any> {
   if (!openai) {
-    throw new Error("OpenAI not configured");
+    console.error(`❌ OpenAI client not initialized`);
+    console.error(`   AI_INTEGRATIONS_OPENAI_BASE_URL: ${process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ? 'set' : 'NOT SET'}`);
+    console.error(`   AI_INTEGRATIONS_OPENAI_API_KEY: ${process.env.AI_INTEGRATIONS_OPENAI_API_KEY ? 'set' : 'NOT SET'}`);
+    console.error(`   OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? 'set' : 'NOT SET'}`);
+    throw new Error("OpenAI not configured. Please contact support.");
   }
   
   const userPrompt = isRetry 
@@ -258,42 +262,67 @@ async function parseWithRetry(
 
   console.log(`🤖 Parsing ${bureauHint} report with AI${isRetry ? ' (RETRY with enhanced prompt)' : ''}...`);
   console.log(`   Model: ${OPENAI_MODEL}, Prompt length: ${userPrompt.length} chars`);
+  console.log(`   Raw text length being sent: ${rawText.length} chars`);
 
-  const response = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      {
-        role: "system",
-        content: SYSTEM_PROMPT,
-      },
-      {
-        role: "user",
-        content: userPrompt,
-      },
-    ],
-    response_format: { type: "json_object" },
-    max_completion_tokens: 32768, // Increased from 8192 to handle large tri-merge reports
-  });
-
-  const content = response.choices[0].message.content;
-  const finishReason = response.choices[0].finish_reason;
-  
-  console.log(`   AI response: ${content?.length || 0} chars, finish_reason: ${finishReason}`);
-  
-  if (!content || content.trim() === "" || content === "{}") {
-    console.error(`❌ AI returned empty or null content`);
-    throw new Error("AI returned empty response. Please try again.");
-  }
-  
-  if (finishReason === "length") {
-    console.warn(`⚠️ AI response was truncated (hit token limit)`);
-  }
-  
   try {
-    return JSON.parse(content);
-  } catch (jsonError) {
-    console.error(`❌ Failed to parse AI response as JSON:`, content.substring(0, 500));
-    throw new Error("AI returned invalid JSON. Please try again.");
+    const response = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: SYSTEM_PROMPT,
+        },
+        {
+          role: "user",
+          content: userPrompt,
+        },
+      ],
+      response_format: { type: "json_object" },
+      max_completion_tokens: 32768,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    const finishReason = response.choices[0]?.finish_reason;
+    
+    console.log(`   AI response: ${content?.length || 0} chars, finish_reason: ${finishReason}`);
+    
+    if (!content || content.trim() === "" || content === "{}") {
+      console.error(`❌ AI returned empty or null content`);
+      console.error(`   Full response object: ${JSON.stringify(response).substring(0, 500)}`);
+      throw new Error("AI returned empty response. Please try again.");
+    }
+    
+    if (finishReason === "length") {
+      console.warn(`⚠️ AI response was truncated (hit token limit)`);
+    }
+    
+    try {
+      const parsed = JSON.parse(content);
+      
+      // Log what we got
+      const tradelineCount = (parsed.tradelines || []).length;
+      const collectionCount = (parsed.collections || []).length;
+      console.log(`   Parsed result: ${tradelineCount} tradelines, ${collectionCount} collections`);
+      
+      // Log a sample if we got data
+      if (tradelineCount > 0) {
+        console.log(`   Sample tradeline: ${JSON.stringify(parsed.tradelines[0]).substring(0, 200)}`);
+      }
+      if (collectionCount > 0) {
+        console.log(`   Sample collection: ${JSON.stringify(parsed.collections[0]).substring(0, 200)}`);
+      }
+      
+      return parsed;
+    } catch (jsonError) {
+      console.error(`❌ Failed to parse AI response as JSON`);
+      console.error(`   First 1000 chars: ${content.substring(0, 1000)}`);
+      throw new Error("AI returned invalid JSON. Please try again.");
+    }
+  } catch (apiError: any) {
+    console.error(`❌ OpenAI API call failed: ${apiError.message}`);
+    console.error(`   Error type: ${apiError.constructor.name}`);
+    console.error(`   Error details: ${JSON.stringify(apiError).substring(0, 500)}`);
+    throw new Error(`AI service error: ${apiError.message}`);
   }
 }
 
@@ -309,6 +338,7 @@ function buildRetryPrompt(
   let text = rawText;
   
   if (rawText.length > MAX_TEXT_LENGTH) {
+    console.warn(`⚠️ [RETRY] Text too long (${rawText.length} chars), truncating to ${MAX_TEXT_LENGTH}`);
     text = rawText.slice(0, MAX_TEXT_LENGTH);
     const lastNewline = text.lastIndexOf('\n');
     if (lastNewline > MAX_TEXT_LENGTH - 1000) {
@@ -318,7 +348,9 @@ function buildRetryPrompt(
   
   console.log(`📄 [RETRY] Credit report text length: ${rawText.length} chars (using ${text.length} chars)`);
 
-  return `CRITICAL RETRY - Previous parse returned 0 accounts. This is a credit report that MUST contain tradelines and/or collections.
+  return `CRITICAL RETRY - Previous parse returned 0 accounts. This is OCR'd text from a credit report PDF.
+
+IMPORTANT: The text may be messy or have OCR errors, but you MUST extract ANY accounts you can find.
 
 Provider: ${provider}
 Bureau hint: ${bureauHint}
@@ -409,6 +441,17 @@ async function parseWithBureauChunking(
   // Log telemetry for debugging
   console.log(`📊 [TELEMETRY] OCR text: ${rawText.length} chars`);
   console.log(`📊 [TELEMETRY] First 500 chars: ${rawText.substring(0, 500).replace(/\n/g, ' ')}`);
+  
+  // Check OCR quality - look for credit report keywords
+  const lowerText = rawText.toLowerCase();
+  const creditKeywords = ['account', 'balance', 'creditor', 'credit', 'payment', 'date', 'status', 'experian', 'equifax', 'transunion'];
+  const foundKeywords = creditKeywords.filter(kw => lowerText.includes(kw));
+  console.log(`📊 [TELEMETRY] Found ${foundKeywords.length} credit keywords: ${foundKeywords.join(', ')}`);
+  
+  if (foundKeywords.length < 2) {
+    console.error(`❌ OCR text appears garbled - only ${foundKeywords.length} credit keywords found`);
+    console.error(`   This indicates the PDF may be encrypted, password-protected, or a scanned image with poor quality`);
+  }
   
   // If text is small enough, parse normally
   if (rawText.length <= CHUNK_THRESHOLD) {
@@ -574,6 +617,103 @@ async function parseWithBureauChunking(
   };
 }
 
+// Last-resort simple extraction with a very focused prompt
+// Used when all other methods fail
+async function parseWithSimplePrompt(
+  rawText: string,
+  bureauHint: BureauCode,
+  provider: string,
+  userId: string,
+  reportId: string
+): Promise<any> {
+  if (!openai) {
+    throw new Error("OpenAI not configured");
+  }
+  
+  // Use only the first 100k chars to ensure we stay well within limits
+  const text = rawText.length > 100000 ? rawText.substring(0, 100000) : rawText;
+  
+  console.log(`🔧 LAST RESORT: Trying simple extraction with ${text.length} chars...`);
+  
+  const simplePrompt = `Extract credit accounts from this text. The text is OCR output from a credit report PDF and may have errors.
+
+FIND ANY:
+- Credit cards (VISA, Mastercard, Discover, AmEx, store cards)
+- Auto loans
+- Mortgages
+- Personal loans
+- Student loans
+- Collections
+- Medical bills
+- Utility accounts
+
+For each account found, extract:
+- creditorName: Company name
+- balance: Dollar amount
+- status: OPEN, CLOSED, COLLECTION, CHARGE_OFF, or UNKNOWN
+
+Return JSON:
+{
+  "tradelines": [{"id": "1", "creditorName": "...", "balance": 0, "status": "...", "type": "CREDIT_CARD", "bureaus": ["EXPERIAN"]}],
+  "collections": [{"id": "1", "collectorName": "...", "balance": 0, "status": "OPEN_COLLECTION", "bureaus": ["EQUIFAX"]}]
+}
+
+If you find NO accounts at all, still return {"tradelines": [], "collections": []}.
+
+TEXT:
+${text}`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [
+        {
+          role: "user",
+          content: simplePrompt,
+        },
+      ],
+      response_format: { type: "json_object" },
+      max_completion_tokens: 16384,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    console.log(`   Simple extraction response: ${content?.length || 0} chars`);
+    
+    if (!content) {
+      throw new Error("Empty response from AI");
+    }
+    
+    const parsed = JSON.parse(content);
+    console.log(`   Simple extraction found: ${(parsed.tradelines || []).length} tradelines, ${(parsed.collections || []).length} collections`);
+    
+    // Add bureau info if missing
+    const detectedBureaus: BureauCode[] = [];
+    const lowerText = rawText.toLowerCase();
+    if (/\bexperian\b/.test(lowerText)) detectedBureaus.push('EXPERIAN');
+    if (/\bequifax\b/.test(lowerText)) detectedBureaus.push('EQUIFAX');
+    if (/\btransunion\b|\btrans\s*union\b/.test(lowerText)) detectedBureaus.push('TRANSUNION');
+    const bureausIncluded = detectedBureaus.length > 0 ? detectedBureaus : ['EXPERIAN', 'EQUIFAX', 'TRANSUNION'] as BureauCode[];
+    
+    return {
+      id: reportId,
+      userId,
+      meta: {
+        id: reportId,
+        provider,
+        reportDate: new Date().toISOString().split('T')[0],
+        bureausIncluded,
+      },
+      tradelines: parsed.tradelines || [],
+      collections: parsed.collections || [],
+      publicRecords: [],
+      inquiries: [],
+    };
+  } catch (error: any) {
+    console.error(`❌ Simple extraction failed: ${error.message}`);
+    throw error;
+  }
+}
+
 // Retry parsing with smaller chunks and enhanced prompts for large PDFs
 // This is used when the first pass fails (returns 0 accounts)
 async function parseWithSmallerChunks(
@@ -588,6 +728,7 @@ async function parseWithSmallerChunks(
   const OVERLAP = 3000;
   
   console.log(`🔄 RETRY: Parsing with smaller chunks (${SMALL_CHUNK_SIZE} chars each)...`);
+  console.log(`📝 Total text length: ${rawText.length} chars`);
   
   const chunks: string[] = [];
   for (let i = 0; i < rawText.length; i += SMALL_CHUNK_SIZE - OVERLAP) {
@@ -606,28 +747,39 @@ async function parseWithSmallerChunks(
   
   const allTradelines: any[] = [];
   const allCollections: any[] = [];
+  let successfulChunks = 0;
+  let failedChunks = 0;
   
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     console.log(`🔄 Retry chunk ${i + 1}/${chunks.length} (${chunk.length} chars)...`);
+    console.log(`   Chunk sample: ${chunk.substring(0, 200).replace(/\n/g, ' ')}`);
     
     try {
       // Use enhanced retry prompt for each chunk
       const parsed = await parseWithRetry(chunk, 'TRI', provider, userId, reportId, true);
       
-      for (const tl of parsed.tradelines || []) {
+      const chunkTradelines = parsed.tradelines || [];
+      const chunkCollections = parsed.collections || [];
+      
+      for (const tl of chunkTradelines) {
         allTradelines.push(tl);
       }
-      for (const col of parsed.collections || []) {
+      for (const col of chunkCollections) {
         allCollections.push(col);
       }
       
-      console.log(`✅ Retry chunk ${i + 1}: ${(parsed.tradelines || []).length} tradelines, ${(parsed.collections || []).length} collections`);
+      successfulChunks++;
+      console.log(`✅ Retry chunk ${i + 1}: ${chunkTradelines.length} tradelines, ${chunkCollections.length} collections`);
     } catch (chunkError: any) {
-      console.error(`⚠️ Failed retry chunk ${i + 1}: ${chunkError.message}`);
+      failedChunks++;
+      console.error(`❌ Failed retry chunk ${i + 1}: ${chunkError.message}`);
       // Continue with other chunks
     }
   }
+  
+  console.log(`📊 Chunk processing complete: ${successfulChunks} successful, ${failedChunks} failed`);
+  console.log(`📊 Raw results before merge: ${allTradelines.length} tradelines, ${allCollections.length} collections`);
   
   // Merge duplicates
   const mergedTradelines = mergeTradelinesAcrossBureaus(allTradelines);
@@ -642,6 +794,7 @@ async function parseWithSmallerChunks(
   const bureausIncluded = detectedBureaus.length > 0 ? detectedBureaus : ['EXPERIAN', 'EQUIFAX', 'TRANSUNION'] as BureauCode[];
   
   console.log(`📊 Retry complete: ${mergedTradelines.length} tradelines, ${mergedCollections.length} collections`);
+  console.log(`📊 Detected bureaus: ${bureausIncluded.join(', ')}`);
   
   return {
     id: reportId,
@@ -857,11 +1010,27 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
       const retryCollectionCount = (parsed.collections || []).length;
       
       if (retryTradelineCount === 0 && retryCollectionCount === 0) {
-        console.error(`❌ RETRY ALSO FAILED - Still 0 accounts. AI parsing issue.`);
-        console.error(`   Text length: ${rawText.length} chars`);
-        console.error(`   Has credit keywords: ${hasKeywords}`);
-        console.error(`   First 2000 chars of OCR text: ${rawText.substring(0, 2000)}`);
-        throw new Error("Could not extract any accounts from your credit report after multiple attempts. The PDF may be scanned poorly or in an unsupported format. Please try uploading a clearer copy.");
+        console.warn(`⚠️ RETRY ALSO FAILED - Trying last-resort simple extraction...`);
+        
+        // Last resort: Try a much simpler, focused extraction
+        try {
+          parsed = await parseWithSimplePrompt(rawText, bureauHint, provider, userId, reportId);
+          const simpleTradelineCount = (parsed.tradelines || []).length;
+          const simpleCollectionCount = (parsed.collections || []).length;
+          
+          if (simpleTradelineCount > 0 || simpleCollectionCount > 0) {
+            console.log(`✅ SIMPLE EXTRACTION SUCCEEDED - Found ${simpleTradelineCount} tradelines, ${simpleCollectionCount} collections`);
+          } else {
+            console.error(`❌ ALL PARSING METHODS FAILED - 0 accounts after all attempts`);
+            console.error(`   Text length: ${rawText.length} chars`);
+            console.error(`   Has credit keywords: ${hasKeywords}`);
+            console.error(`   First 2000 chars of OCR text: ${rawText.substring(0, 2000)}`);
+            throw new Error("Could not extract any accounts from your credit report after multiple attempts. The PDF may be scanned poorly or in an unsupported format. Please try uploading a clearer copy.");
+          }
+        } catch (simpleError: any) {
+          console.error(`❌ Simple extraction failed: ${simpleError.message}`);
+          throw new Error("Could not extract any accounts from your credit report after multiple attempts. The PDF may be scanned poorly or in an unsupported format. Please try uploading a clearer copy.");
+        }
       } else {
         console.log(`✅ RETRY SUCCEEDED - Found ${retryTradelineCount} tradelines, ${retryCollectionCount} collections`);
       }
