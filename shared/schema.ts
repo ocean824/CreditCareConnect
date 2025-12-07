@@ -79,7 +79,7 @@ export const creditReports = pgTable("credit_reports", {
 // Credit report violations detected by AI
 export const violations = pgTable("violations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  creditReportId: varchar("credit_report_id").notNull().references(() => creditReports.id),
+  creditReportId: varchar("credit_report_id").notNull().references(() => creditReports.id, { onDelete: 'cascade' }),
   accountName: varchar("account_name").notNull(),
   accountNumber: varchar("account_number"),
   bureau: varchar("bureau").notNull(), // EQUIFAX, TRANSUNION, EXPERIAN (violations from TRI-MERGE reports get tagged with specific bureau)
@@ -112,8 +112,8 @@ export const disputeLetters = pgTable("dispute_letters", {
 // Dispute letter violations relationship
 export const disputeLetterViolations = pgTable("dispute_letter_violations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  disputeLetterId: varchar("dispute_letter_id").notNull().references(() => disputeLetters.id),
-  violationId: varchar("violation_id").notNull().references(() => violations.id),
+  disputeLetterId: varchar("dispute_letter_id").notNull().references(() => disputeLetters.id, { onDelete: 'cascade' }),
+  violationId: varchar("violation_id").notNull().references(() => violations.id, { onDelete: 'cascade' }),
 });
 
 // AI chat conversations
@@ -218,7 +218,7 @@ export type CfpbComplaint = typeof cfpbComplaints.$inferSelect;
 // Analysis runs tracking
 export const analysisRuns = pgTable("analysis_runs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  creditReportId: varchar("credit_report_id").notNull().references(() => creditReports.id),
+  creditReportId: varchar("credit_report_id").notNull().references(() => creditReports.id, { onDelete: 'cascade' }),
   engineVersion: varchar("engine_version").notNull(),
   aiModel: varchar("ai_model").notNull(),
   status: varchar("status").default("completed"),
@@ -232,7 +232,7 @@ export const analysisRuns = pgTable("analysis_runs", {
 // Issues detected by rules engine
 export const issues = pgTable("issues", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  runId: varchar("run_id").notNull().references(() => analysisRuns.id),
+  runId: varchar("run_id").notNull().references(() => analysisRuns.id, { onDelete: 'cascade' }),
   issueId: varchar("issue_id").notNull(),
   ruleId: varchar("rule_id").notNull(),
   family: varchar("family").notNull(),
@@ -251,7 +251,7 @@ export const issues = pgTable("issues", {
 // AI-generated explanations for issues
 export const aiIssueExplanations = pgTable("ai_issue_explanations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  runId: varchar("run_id").notNull().references(() => analysisRuns.id),
+  runId: varchar("run_id").notNull().references(() => analysisRuns.id, { onDelete: 'cascade' }),
   issueId: varchar("issue_id").notNull(),
   accountLabel: varchar("account_label").notNull(),
   humanSummary: text("human_summary").notNull(),
@@ -266,7 +266,7 @@ export const aiIssueExplanations = pgTable("ai_issue_explanations", {
 // Account summaries for UI display
 export const accountSummaries = pgTable("account_summaries", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  runId: varchar("run_id").notNull().references(() => analysisRuns.id),
+  runId: varchar("run_id").notNull().references(() => analysisRuns.id, { onDelete: 'cascade' }),
   accountLabel: varchar("account_label").notNull(),
   bureauIds: text("bureau_ids").array(),
   topIssueIds: text("top_issue_ids").array(),
