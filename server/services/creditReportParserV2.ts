@@ -197,9 +197,22 @@ function buildUserPrompt(
   userId: string,
   existingReportId?: string
 ): string {
-  // GPT-5 supports 128k tokens (~500k chars). Using 900k char limit for extra large reports.
-  const MAX_TEXT_LENGTH = 900000;
-  const text = rawText.length > MAX_TEXT_LENGTH ? rawText.slice(0, MAX_TEXT_LENGTH) : rawText;
+  // GPT-5 supports 128k tokens. Each token ≈ 4 chars, so ~512k chars max.
+  // Reserve ~100k chars for system prompt + JSON response = ~400k chars for report text.
+  // CRITICAL: Using 900k caused the model to drop bureau sections and return 0 accounts!
+  const MAX_TEXT_LENGTH = 400000;
+  let text = rawText;
+  
+  if (rawText.length > MAX_TEXT_LENGTH) {
+    console.warn(`⚠️ Credit report text (${rawText.length} chars) exceeds safe limit (${MAX_TEXT_LENGTH}). Truncating...`);
+    // Try to truncate smartly - preserve bureau sections proportionally
+    text = rawText.slice(0, MAX_TEXT_LENGTH);
+    // Try to end at a newline to avoid cutting mid-word
+    const lastNewline = text.lastIndexOf('\n');
+    if (lastNewline > MAX_TEXT_LENGTH - 1000) {
+      text = text.slice(0, lastNewline);
+    }
+  }
   
   console.log(`📄 Credit report text length: ${rawText.length} chars (using ${text.length} chars)`);
 
@@ -244,6 +257,7 @@ async function parseWithRetry(
     : buildUserPrompt(rawText, bureauHint, provider, userId, reportId);
 
   console.log(`🤖 Parsing ${bureauHint} report with AI${isRetry ? ' (RETRY with enhanced prompt)' : ''}...`);
+  console.log(`   Model: ${OPENAI_MODEL}, Prompt length: ${userPrompt.length} chars`);
 
   const response = await openai.chat.completions.create({
     model: OPENAI_MODEL,
@@ -258,10 +272,29 @@ async function parseWithRetry(
       },
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 8192,
+    max_completion_tokens: 32768, // Increased from 8192 to handle large tri-merge reports
   });
 
-  return JSON.parse(response.choices[0].message.content || "{}");
+  const content = response.choices[0].message.content;
+  const finishReason = response.choices[0].finish_reason;
+  
+  console.log(`   AI response: ${content?.length || 0} chars, finish_reason: ${finishReason}`);
+  
+  if (!content || content.trim() === "" || content === "{}") {
+    console.error(`❌ AI returned empty or null content`);
+    throw new Error("AI returned empty response. Please try again.");
+  }
+  
+  if (finishReason === "length") {
+    console.warn(`⚠️ AI response was truncated (hit token limit)`);
+  }
+  
+  try {
+    return JSON.parse(content);
+  } catch (jsonError) {
+    console.error(`❌ Failed to parse AI response as JSON:`, content.substring(0, 500));
+    throw new Error("AI returned invalid JSON. Please try again.");
+  }
 }
 
 function buildRetryPrompt(
@@ -271,10 +304,19 @@ function buildRetryPrompt(
   userId: string,
   reportId: string
 ): string {
-  const MAX_TEXT_LENGTH = 900000;
-  const text = rawText.length > MAX_TEXT_LENGTH ? rawText.slice(0, MAX_TEXT_LENGTH) : rawText;
+  // Same limit as buildUserPrompt - must stay within GPT-5's context window
+  const MAX_TEXT_LENGTH = 400000;
+  let text = rawText;
   
-  console.log(`📄 [RETRY] Credit report text length: ${rawText.length} chars`);
+  if (rawText.length > MAX_TEXT_LENGTH) {
+    text = rawText.slice(0, MAX_TEXT_LENGTH);
+    const lastNewline = text.lastIndexOf('\n');
+    if (lastNewline > MAX_TEXT_LENGTH - 1000) {
+      text = text.slice(0, lastNewline);
+    }
+  }
+  
+  console.log(`📄 [RETRY] Credit report text length: ${rawText.length} chars (using ${text.length} chars)`);
 
   return `CRITICAL RETRY - Previous parse returned 0 accounts. This is a credit report that MUST contain tradelines and/or collections.
 
