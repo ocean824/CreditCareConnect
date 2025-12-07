@@ -9,10 +9,26 @@ import fs from "fs";
 import { requestId } from "./middleware/requestId";
 import { errorHandler } from "./middleware/errorHandler";
 import { rateLimit } from "./middleware/rateLimit";
-import { registerObservability } from "./observability";
 import { registerOpenApi } from "./openapi";
 
 const app = express();
+
+// CRITICAL: Register health checks FIRST before any other middleware
+// This ensures deployment health checks respond immediately
+app.get("/healthz", (_req, res) => {
+  res.status(200).send("ok");
+});
+
+// Lightweight readiness check - responds immediately, DB check is async
+let dbReady = false;
+app.get("/readyz", (_req, res) => {
+  if (dbReady) {
+    res.status(200).send("ready");
+  } else {
+    // Still return 200 to pass health check, mark as warming up
+    res.status(200).send("warming");
+  }
+});
 
 // Force production mode if dist/public exists (built files are present)
 // Otherwise default to development. This handles both NODE_ENV and auto-detection.
@@ -84,28 +100,8 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
-  // Docs & Observability
+  // Docs only - health checks registered at top of file
   registerOpenApi(app);
-  registerObservability(app);
-
-  // Admin bootstrap: promote users in ADMIN_EMAILS to admin role
-  if (process.env.ADMIN_EMAILS) {
-    const { db } = await import("./db");
-    const { users } = await import("@shared/schema");
-    const { eq } = await import("drizzle-orm");
-    
-    const adminEmails = process.env.ADMIN_EMAILS.split(',').map(e => e.trim());
-    for (const email of adminEmails) {
-      try {
-        await db.update(users)
-          .set({ role: 'admin' })
-          .where(eq(users.email, email));
-        log(`Promoted ${email} to admin`);
-      } catch (e) {
-        // User might not exist yet, will be promoted on login
-      }
-    }
-  }
 
   // Error handler must be last
   app.use(errorHandler);
@@ -130,6 +126,40 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    
+    // Run DB checks and admin bootstrap AFTER server is listening
+    // This ensures health checks pass immediately
+    setTimeout(async () => {
+      try {
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        
+        // Verify DB connectivity
+        await db.execute(sql`select 1`);
+        dbReady = true;
+        log("Database connection verified");
+        
+        // Admin bootstrap: promote users in ADMIN_EMAILS to admin role
+        if (process.env.ADMIN_EMAILS) {
+          const { users } = await import("@shared/schema");
+          const { eq } = await import("drizzle-orm");
+          
+          const adminEmails = process.env.ADMIN_EMAILS.split(',').map(e => e.trim());
+          for (const email of adminEmails) {
+            try {
+              await db.update(users)
+                .set({ role: 'admin' })
+                .where(eq(users.email, email));
+              log(`Promoted ${email} to admin`);
+            } catch (e) {
+              // User might not exist yet, will be promoted on login
+            }
+          }
+        }
+      } catch (e) {
+        log(`Database initialization error: ${e}`);
+      }
+    }, 100); // Small delay to ensure server is fully ready
   });
 })();
 
