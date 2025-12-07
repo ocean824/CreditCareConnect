@@ -574,6 +574,91 @@ async function parseWithBureauChunking(
   };
 }
 
+// Retry parsing with smaller chunks and enhanced prompts for large PDFs
+// This is used when the first pass fails (returns 0 accounts)
+async function parseWithSmallerChunks(
+  rawText: string,
+  bureauHint: BureauCode,
+  provider: string,
+  userId: string,
+  reportId: string
+): Promise<any> {
+  // Use smaller chunks than the first pass (75k instead of 150k)
+  const SMALL_CHUNK_SIZE = 75000;
+  const OVERLAP = 3000;
+  
+  console.log(`🔄 RETRY: Parsing with smaller chunks (${SMALL_CHUNK_SIZE} chars each)...`);
+  
+  const chunks: string[] = [];
+  for (let i = 0; i < rawText.length; i += SMALL_CHUNK_SIZE - OVERLAP) {
+    let chunkEnd = Math.min(i + SMALL_CHUNK_SIZE, rawText.length);
+    // Try to end at a newline to avoid cutting mid-account
+    if (chunkEnd < rawText.length) {
+      const nearbyNewline = rawText.lastIndexOf('\n', chunkEnd);
+      if (nearbyNewline > i + SMALL_CHUNK_SIZE - 5000) {
+        chunkEnd = nearbyNewline;
+      }
+    }
+    chunks.push(rawText.substring(i, chunkEnd));
+  }
+  
+  console.log(`📑 Split into ${chunks.length} smaller chunks for retry`);
+  
+  const allTradelines: any[] = [];
+  const allCollections: any[] = [];
+  
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    console.log(`🔄 Retry chunk ${i + 1}/${chunks.length} (${chunk.length} chars)...`);
+    
+    try {
+      // Use enhanced retry prompt for each chunk
+      const parsed = await parseWithRetry(chunk, 'TRI', provider, userId, reportId, true);
+      
+      for (const tl of parsed.tradelines || []) {
+        allTradelines.push(tl);
+      }
+      for (const col of parsed.collections || []) {
+        allCollections.push(col);
+      }
+      
+      console.log(`✅ Retry chunk ${i + 1}: ${(parsed.tradelines || []).length} tradelines, ${(parsed.collections || []).length} collections`);
+    } catch (chunkError: any) {
+      console.error(`⚠️ Failed retry chunk ${i + 1}: ${chunkError.message}`);
+      // Continue with other chunks
+    }
+  }
+  
+  // Merge duplicates
+  const mergedTradelines = mergeTradelinesAcrossBureaus(allTradelines);
+  const mergedCollections = mergeCollectionsAcrossBureaus(allCollections);
+  
+  // Detect bureaus from text
+  const detectedBureaus: BureauCode[] = [];
+  const lowerText = rawText.toLowerCase();
+  if (/\bexperian\b/.test(lowerText)) detectedBureaus.push('EXPERIAN');
+  if (/\bequifax\b/.test(lowerText)) detectedBureaus.push('EQUIFAX');
+  if (/\btransunion\b|\btrans\s*union\b/.test(lowerText)) detectedBureaus.push('TRANSUNION');
+  const bureausIncluded = detectedBureaus.length > 0 ? detectedBureaus : ['EXPERIAN', 'EQUIFAX', 'TRANSUNION'] as BureauCode[];
+  
+  console.log(`📊 Retry complete: ${mergedTradelines.length} tradelines, ${mergedCollections.length} collections`);
+  
+  return {
+    id: reportId,
+    userId,
+    meta: {
+      id: reportId,
+      provider,
+      reportDate: new Date().toISOString().split('T')[0],
+      bureausIncluded,
+    },
+    tradelines: mergedTradelines,
+    collections: mergedCollections,
+    publicRecords: [],
+    inquiries: [],
+  };
+}
+
 // Merge tradelines that appear on multiple bureaus into single entries with multiple snapshots
 // CONSERVATIVE: Only merge when we have high confidence it's the same account
 function mergeTradelinesAcrossBureaus(tradelines: any[]): any[] {
@@ -758,7 +843,15 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
         throw new Error("The uploaded PDF appears to be unreadable or not a valid credit report. The text extraction found no recognizable credit data. Please try uploading a clearer copy or a different format.");
       }
       
-      parsed = await parseWithRetry(rawText, bureauHint, provider, userId, reportId, true);
+      // CRITICAL FIX: For large texts, retry with SMALLER chunks instead of full text
+      // Using full text causes truncation which loses entire bureau sections
+      if (rawText.length > 150000) {
+        console.log(`📄 Text is large (${rawText.length} chars) - retrying with smaller chunks and enhanced prompt`);
+        parsed = await parseWithSmallerChunks(rawText, bureauHint, provider, userId, reportId);
+      } else {
+        // For smaller texts, retry is safe
+        parsed = await parseWithRetry(rawText, bureauHint, provider, userId, reportId, true);
+      }
       
       const retryTradelineCount = (parsed.tradelines || []).length;
       const retryCollectionCount = (parsed.collections || []).length;
