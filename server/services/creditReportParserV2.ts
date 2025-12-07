@@ -435,7 +435,9 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
   } catch (error: any) {
     console.error("❌ AI parsing failed:", error.message);
     console.error("   Stack:", error.stack?.split('\n').slice(0, 3).join('\n'));
-    return buildFallbackReport(userId, bureauHint, existingReportId);
+    // CRITICAL: Throw the error instead of silently returning empty data
+    // This ensures the caller knows parsing failed and can handle it appropriately
+    throw new Error(`AI parsing failed: ${error.message}. Please try again or contact support.`);
   }
 }
 

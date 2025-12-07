@@ -990,6 +990,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`📊 [AI PARSER OUTPUT] tradelines: ${triMergeReport.tradelines.length}, collections: ${triMergeReport.collections.length}`);
           console.log(`📊 [AI PARSER OUTPUT] bureausIncluded: ${triMergeReport.meta.bureausIncluded.join(', ')}`);
           
+          // CRITICAL: Fail if AI returned no data
+          if (triMergeReport.tradelines.length === 0 && triMergeReport.collections.length === 0) {
+            console.error(`❌ AI parser returned ZERO tradelines and ZERO collections!`);
+            throw new Error('AI parsing returned no credit data. The credit report may be unreadable or in an unsupported format.');
+          }
+          
           if (triMergeReport.tradelines.length > 0) {
             const sample = triMergeReport.tradelines[0];
             console.log(`📊 [AI PARSER OUTPUT] Sample tradeline: ${sample.creditorName}, bureaus: ${JSON.stringify(sample.bureaus)}, snapshots: ${sample.bureauSnapshots?.length || 0}`);
@@ -1891,6 +1897,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         console.log(`🧮 AI parse result - tradelines: ${triMergeReport?.tradelines?.length || 0}, collections: ${triMergeReport?.collections?.length || 0}`);
         console.log(`   Bureaus included: ${triMergeReport?.meta?.bureausIncluded?.join(', ') || 'none'}`);
+        
+        // CRITICAL: Fail if AI returned no data
+        if ((!triMergeReport?.tradelines || triMergeReport.tradelines.length === 0) && 
+            (!triMergeReport?.collections || triMergeReport.collections.length === 0)) {
+          console.error(`❌ AI parser returned ZERO tradelines and ZERO collections!`);
+          throw new Error('AI parsing returned no credit data. The credit report may be unreadable or in an unsupported format. Please try re-uploading.');
+        }
         
         // Log sample data from AI parser
         if (triMergeReport?.tradelines?.length > 0) {
