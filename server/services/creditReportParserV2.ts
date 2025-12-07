@@ -352,6 +352,377 @@ FULL CREDIT REPORT TEXT:
 Return ONLY a single JSON object matching TriMergeCreditReport with ALL accounts found. No explanations.`;
 }
 
+// Split large OCR text into bureau chunks for sequential parsing
+function splitTextByBureau(rawText: string): { bureau: BureauCode; text: string }[] {
+  const bureauPatterns = [
+    { bureau: 'EXPERIAN' as BureauCode, patterns: [/\bEXPERIAN\b/gi, /\bEXP\b/gi] },
+    { bureau: 'EQUIFAX' as BureauCode, patterns: [/\bEQUIFAX\b/gi, /\bEFX\b/gi, /\bEQF\b/gi] },
+    { bureau: 'TRANSUNION' as BureauCode, patterns: [/\bTRANSUNION\b/gi, /\bTRANS\s*UNION\b/gi, /\bTU\b/gi, /\bTUC\b/gi] },
+  ];
+  
+  // Find bureau section boundaries
+  const sections: { bureau: BureauCode; start: number; end: number }[] = [];
+  
+  for (const { bureau, patterns } of bureauPatterns) {
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(rawText)) !== null) {
+        // Look for section headers (bureau name at start of line or after major delimiter)
+        const before = rawText.substring(Math.max(0, match.index - 50), match.index);
+        if (/[\n\r]/.test(before) || match.index < 100) {
+          sections.push({ bureau, start: match.index, end: rawText.length });
+          break;
+        }
+      }
+    }
+  }
+  
+  // Sort by start position and set proper end boundaries
+  sections.sort((a, b) => a.start - b.start);
+  for (let i = 0; i < sections.length - 1; i++) {
+    sections[i].end = sections[i + 1].start;
+  }
+  
+  // Extract text chunks
+  if (sections.length > 0) {
+    console.log(`📑 Split text into ${sections.length} bureau sections: ${sections.map(s => `${s.bureau}(${s.start}-${s.end})`).join(', ')}`);
+    return sections.map(s => ({
+      bureau: s.bureau,
+      text: rawText.substring(s.start, s.end),
+    }));
+  }
+  
+  // If no clear bureau sections, return full text
+  return [{ bureau: 'TRI' as BureauCode, text: rawText }];
+}
+
+// Parse large text by bureau chunks if needed
+async function parseWithBureauChunking(
+  rawText: string,
+  bureauHint: BureauCode,
+  provider: string,
+  userId: string,
+  reportId: string
+): Promise<any> {
+  const CHUNK_THRESHOLD = 300000; // Use chunking if text > 300k chars
+  
+  // Log telemetry for debugging
+  console.log(`📊 [TELEMETRY] OCR text: ${rawText.length} chars`);
+  console.log(`📊 [TELEMETRY] First 500 chars: ${rawText.substring(0, 500).replace(/\n/g, ' ')}`);
+  
+  // If text is small enough, parse normally
+  if (rawText.length <= CHUNK_THRESHOLD) {
+    console.log(`📄 Text size (${rawText.length}) within threshold, parsing in single request`);
+    return parseWithRetry(rawText, bureauHint, provider, userId, reportId, false);
+  }
+  
+  // Text is too large - try bureau-aware chunking
+  console.log(`📄 Text size (${rawText.length}) exceeds threshold (${CHUNK_THRESHOLD}), attempting bureau chunking`);
+  
+  const chunks = splitTextByBureau(rawText);
+  
+  // If only one chunk (no clear bureau sections), try fixed-size chunking
+  if (chunks.length === 1) {
+    console.log(`⚠️ Could not split by bureau headers, trying fixed-size chunking`);
+    
+    // Split into ~150k char chunks with overlap to avoid cutting accounts
+    const FIXED_CHUNK_SIZE = 150000;
+    const OVERLAP = 5000;
+    const fixedChunks: { bureau: BureauCode; text: string }[] = [];
+    
+    for (let i = 0; i < rawText.length; i += FIXED_CHUNK_SIZE - OVERLAP) {
+      let chunkEnd = Math.min(i + FIXED_CHUNK_SIZE, rawText.length);
+      // Try to end at a newline to avoid cutting mid-account
+      if (chunkEnd < rawText.length) {
+        const nearbyNewline = rawText.lastIndexOf('\n', chunkEnd);
+        if (nearbyNewline > i + FIXED_CHUNK_SIZE - 10000) {
+          chunkEnd = nearbyNewline;
+        }
+      }
+      fixedChunks.push({
+        bureau: 'TRI' as BureauCode,
+        text: rawText.substring(i, chunkEnd),
+      });
+    }
+    
+    console.log(`📑 Split text into ${fixedChunks.length} fixed-size chunks`);
+    
+    // Local arrays for fixed-size chunking
+    const fixedTradelines: any[] = [];
+    const fixedCollections: any[] = [];
+    
+    // Parse each chunk and merge
+    for (let i = 0; i < fixedChunks.length; i++) {
+      const chunk = fixedChunks[i];
+      console.log(`🔄 Parsing chunk ${i + 1}/${fixedChunks.length} (${chunk.text.length} chars)...`);
+      
+      try {
+        const parsed = await parseWithRetry(chunk.text, 'TRI', provider, userId, reportId, false);
+        
+        for (const tl of parsed.tradelines || []) {
+          fixedTradelines.push(tl);
+        }
+        for (const col of parsed.collections || []) {
+          fixedCollections.push(col);
+        }
+        
+        console.log(`✅ Chunk ${i + 1}: ${(parsed.tradelines || []).length} tradelines, ${(parsed.collections || []).length} collections`);
+      } catch (chunkError: any) {
+        console.error(`⚠️ Failed to parse chunk ${i + 1}: ${chunkError.message}`);
+      }
+    }
+    
+    // Merge and return
+    const mergedTradelines = mergeTradelinesAcrossBureaus(fixedTradelines);
+    const mergedCollections = mergeCollectionsAcrossBureaus(fixedCollections);
+    
+    // Detect bureaus from the actual text instead of hardcoding
+    const detectedBureaus: BureauCode[] = [];
+    const lowerText = rawText.toLowerCase();
+    if (/\bexperian\b/.test(lowerText)) detectedBureaus.push('EXPERIAN');
+    if (/\bequifax\b/.test(lowerText)) detectedBureaus.push('EQUIFAX');
+    if (/\btransunion\b|\btrans\s*union\b/.test(lowerText)) detectedBureaus.push('TRANSUNION');
+    // Default to TRI if we couldn't detect specific bureaus
+    const bureausIncluded = detectedBureaus.length > 0 ? detectedBureaus : ['EXPERIAN', 'EQUIFAX', 'TRANSUNION'] as BureauCode[];
+    
+    console.log(`📊 Fixed-size chunking complete: ${mergedTradelines.length} unique tradelines, ${mergedCollections.length} unique collections`);
+    console.log(`📊 Detected bureaus: ${bureausIncluded.join(', ')}`);
+    
+    return {
+      id: reportId,
+      userId,
+      meta: {
+        id: reportId,
+        provider,
+        reportDate: new Date().toISOString().split('T')[0],
+        bureausIncluded,
+      },
+      tradelines: mergedTradelines,
+      collections: mergedCollections,
+      publicRecords: [],
+      inquiries: [],
+    };
+  }
+  
+  // Parse each bureau chunk sequentially
+  const allTradelines: any[] = [];
+  const allCollections: any[] = [];
+  const allPublicRecords: any[] = [];
+  const allInquiries: any[] = [];
+  const bureausIncluded: BureauCode[] = [];
+  
+  for (const chunk of chunks) {
+    console.log(`🔄 Parsing ${chunk.bureau} section (${chunk.text.length} chars)...`);
+    
+    try {
+      const parsed = await parseWithRetry(chunk.text, chunk.bureau, provider, userId, reportId, false);
+      
+      // Add bureau to included list
+      if (!bureausIncluded.includes(chunk.bureau)) {
+        bureausIncluded.push(chunk.bureau);
+      }
+      
+      // Merge results with bureau tagging
+      for (const tl of parsed.tradelines || []) {
+        tl.bureaus = tl.bureaus || [chunk.bureau];
+        if (!tl.bureaus.includes(chunk.bureau)) tl.bureaus.push(chunk.bureau);
+        allTradelines.push(tl);
+      }
+      
+      for (const col of parsed.collections || []) {
+        col.bureaus = col.bureaus || [chunk.bureau];
+        if (!col.bureaus.includes(chunk.bureau)) col.bureaus.push(chunk.bureau);
+        allCollections.push(col);
+      }
+      
+      for (const pr of parsed.publicRecords || []) {
+        allPublicRecords.push(pr);
+      }
+      
+      for (const inq of parsed.inquiries || []) {
+        allInquiries.push(inq);
+      }
+      
+      console.log(`✅ ${chunk.bureau}: ${(parsed.tradelines || []).length} tradelines, ${(parsed.collections || []).length} collections`);
+    } catch (chunkError: any) {
+      console.error(`⚠️ Failed to parse ${chunk.bureau} chunk: ${chunkError.message}`);
+      // Continue with other chunks
+    }
+  }
+  
+  console.log(`📊 Bureau chunking complete: ${allTradelines.length} total tradelines, ${allCollections.length} total collections`);
+  
+  // Merge accounts that appear across multiple bureaus
+  const mergedTradelines = mergeTradelinesAcrossBureaus(allTradelines);
+  const mergedCollections = mergeCollectionsAcrossBureaus(allCollections);
+  
+  console.log(`📊 After merge: ${mergedTradelines.length} unique tradelines, ${mergedCollections.length} unique collections`);
+  
+  return {
+    id: reportId,
+    userId,
+    meta: {
+      id: reportId,
+      provider,
+      reportDate: new Date().toISOString().split('T')[0],
+      bureausIncluded,
+    },
+    tradelines: mergedTradelines,
+    collections: mergedCollections,
+    publicRecords: allPublicRecords,
+    inquiries: allInquiries,
+  };
+}
+
+// Merge tradelines that appear on multiple bureaus into single entries with multiple snapshots
+// CONSERVATIVE: Only merge when we have high confidence it's the same account
+function mergeTradelinesAcrossBureaus(tradelines: any[]): any[] {
+  const merged: Map<string, any> = new Map();
+  
+  for (const tl of tradelines) {
+    // Normalize creditor name for matching
+    const creditorKey = (tl.creditorName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const accountKey = tl.accountNumberLast4 || '';
+    const balanceKey = tl.balance != null ? Math.round(tl.balance) : null;
+    const openedKey = tl.openedDate || '';
+    
+    // CONSERVATIVE: Only merge if we have strong identifiers
+    // Require at least creditor name + (account number OR matching balance+date)
+    const hasStrongId = creditorKey && (accountKey || (balanceKey != null && openedKey));
+    
+    if (!hasStrongId) {
+      // Weak identifiers - don't merge, just add as unique entry
+      const uniqueKey = `weak_${nanoid()}`;
+      merged.set(uniqueKey, {
+        ...tl,
+        bureaus: [...(tl.bureaus || [])],
+        bureauSnapshots: [...(tl.bureauSnapshots || [])],
+      });
+      continue;
+    }
+    
+    // Create compound key with multiple discriminators
+    const key = accountKey 
+      ? `${creditorKey}:${accountKey}` // Strong match: creditor + account number
+      : `${creditorKey}:bal${balanceKey}:${openedKey}`; // Fallback: creditor + balance + date
+    
+    if (merged.has(key)) {
+      // Merge with existing entry
+      const existing = merged.get(key)!;
+      
+      // Add bureaus from this entry
+      for (const bureau of (tl.bureaus || [])) {
+        if (!existing.bureaus.includes(bureau)) {
+          existing.bureaus.push(bureau);
+        }
+      }
+      
+      // Add bureau snapshots from this entry
+      for (const snapshot of (tl.bureauSnapshots || [])) {
+        const existingSnapshot = existing.bureauSnapshots.find((s: any) => s.bureau === snapshot.bureau);
+        if (!existingSnapshot) {
+          existing.bureauSnapshots.push(snapshot);
+        }
+      }
+      
+      // Use non-null values from either entry
+      if (!existing.balance && tl.balance) existing.balance = tl.balance;
+      if (!existing.dateOfFirstDelinquency && tl.dateOfFirstDelinquency) existing.dateOfFirstDelinquency = tl.dateOfFirstDelinquency;
+      if (!existing.openedDate && tl.openedDate) existing.openedDate = tl.openedDate;
+      if (!existing.closedDate && tl.closedDate) existing.closedDate = tl.closedDate;
+      if (!existing.lastPaymentDate && tl.lastPaymentDate) existing.lastPaymentDate = tl.lastPaymentDate;
+      if (!existing.creditLimit && tl.creditLimit) existing.creditLimit = tl.creditLimit;
+    } else {
+      // New entry
+      merged.set(key, {
+        ...tl,
+        bureaus: [...(tl.bureaus || [])],
+        bureauSnapshots: [...(tl.bureauSnapshots || [])],
+      });
+    }
+  }
+  
+  return Array.from(merged.values());
+}
+
+// Merge collections that appear on multiple bureaus into single entries with multiple snapshots
+// CONSERVATIVE: Only merge when we have high confidence it's the same debt
+function mergeCollectionsAcrossBureaus(collections: any[]): any[] {
+  const merged: Map<string, any> = new Map();
+  
+  for (const col of collections) {
+    // Normalize names for matching
+    const collectorKey = (col.collectorName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const origCreditorKey = (col.originalCreditorName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const balanceKey = col.balance != null && col.balance > 0 ? Math.round(col.balance) : null;
+    const accountKey = col.accountNumberLast4 || col.bureauAccountId || '';
+    const dofdKey = col.dateOfFirstDelinquency || '';
+    
+    // CONSERVATIVE: Require strong identifiers for merging
+    // Need collector name + (account number OR balance+DOFD OR original creditor+balance)
+    const hasStrongId = collectorKey && (
+      accountKey ||
+      (balanceKey != null && dofdKey) ||
+      (origCreditorKey && balanceKey != null)
+    );
+    
+    if (!hasStrongId) {
+      // Weak identifiers - don't merge, just add as unique entry
+      const uniqueKey = `weak_col_${nanoid()}`;
+      merged.set(uniqueKey, {
+        ...col,
+        bureaus: [...(col.bureaus || [])],
+        bureauSnapshots: [...(col.bureauSnapshots || [])],
+      });
+      continue;
+    }
+    
+    // Create compound key with multiple discriminators
+    let key: string;
+    if (accountKey) {
+      key = `${collectorKey}:${accountKey}`;
+    } else if (balanceKey != null && dofdKey) {
+      key = `${collectorKey}:bal${balanceKey}:${dofdKey}`;
+    } else {
+      key = `${collectorKey}:${origCreditorKey}:bal${balanceKey}`;
+    }
+    
+    if (merged.has(key)) {
+      // Merge with existing entry
+      const existing = merged.get(key)!;
+      
+      // Add bureaus from this entry
+      for (const bureau of (col.bureaus || [])) {
+        if (!existing.bureaus.includes(bureau)) {
+          existing.bureaus.push(bureau);
+        }
+      }
+      
+      // Add bureau snapshots from this entry
+      for (const snapshot of (col.bureauSnapshots || [])) {
+        const existingSnapshot = existing.bureauSnapshots.find((s: any) => s.bureau === snapshot.bureau);
+        if (!existingSnapshot) {
+          existing.bureauSnapshots.push(snapshot);
+        }
+      }
+      
+      // Use non-null values from either entry
+      if (!existing.dateOfFirstDelinquency && col.dateOfFirstDelinquency) existing.dateOfFirstDelinquency = col.dateOfFirstDelinquency;
+      if (!existing.openedDate && col.openedDate) existing.openedDate = col.openedDate;
+      if (!existing.originalCreditorName && col.originalCreditorName) existing.originalCreditorName = col.originalCreditorName;
+    } else {
+      // New entry
+      merged.set(key, {
+        ...col,
+        bureaus: [...(col.bureaus || [])],
+        bureauSnapshots: [...(col.bureauSnapshots || [])],
+      });
+    }
+  }
+  
+  return Array.from(merged.values());
+}
+
 export async function parseCreditReportWithAiOnly(params: ParseCreditReportParams): Promise<TriMergeCreditReport> {
   const { rawText, bureauHint, provider = "IDENTITYIQ", userId, existingReportId } = params;
 
@@ -363,8 +734,8 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
   try {
     const reportId = existingReportId || nanoid();
 
-    // First attempt with standard prompt
-    let parsed = await parseWithRetry(rawText, bureauHint, provider, userId, reportId, false);
+    // Use bureau-aware chunking for large reports
+    let parsed = await parseWithBureauChunking(rawText, bureauHint, provider, userId, reportId);
     
     // Check if we got zero results - if so, retry with enhanced prompt
     const tradelineCount = (parsed.tradelines || []).length;
@@ -379,7 +750,7 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
       
       if (retryTradelineCount === 0 && retryCollectionCount === 0) {
         console.error(`❌ RETRY ALSO FAILED - Still 0 accounts. OCR text may be corrupted.`);
-        console.error(`   First 1000 chars of OCR text: ${rawText.substring(0, 1000)}`);
+        console.error(`   First 2000 chars of OCR text: ${rawText.substring(0, 2000)}`);
         throw new Error("Could not extract any accounts from your credit report after multiple attempts. The PDF may be scanned poorly or in an unsupported format. Please try uploading a clearer copy.");
       } else {
         console.log(`✅ RETRY SUCCEEDED - Found ${retryTradelineCount} tradelines, ${retryCollectionCount} collections`);
