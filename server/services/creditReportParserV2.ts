@@ -743,13 +743,30 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
     
     if (tradelineCount === 0 && collectionCount === 0 && rawText.length > 1000) {
       console.warn(`⚠️ First parse returned 0 accounts but text has ${rawText.length} chars - retrying with enhanced prompt`);
+      
+      // Log sample of OCR text to diagnose issues
+      const textSample = rawText.substring(0, 3000).replace(/\n/g, ' ');
+      console.log(`📝 OCR text sample (first 3000 chars): ${textSample}`);
+      
+      // Check if OCR text looks valid (has common credit report keywords)
+      const lowerText = rawText.toLowerCase();
+      const hasKeywords = ['account', 'balance', 'creditor', 'credit', 'payment', 'date', 'status'].some(kw => lowerText.includes(kw));
+      console.log(`📝 OCR text has credit keywords: ${hasKeywords}`);
+      
+      if (!hasKeywords) {
+        console.error(`❌ OCR text does NOT contain expected credit report keywords - likely garbled`);
+        throw new Error("The uploaded PDF appears to be unreadable or not a valid credit report. The text extraction found no recognizable credit data. Please try uploading a clearer copy or a different format.");
+      }
+      
       parsed = await parseWithRetry(rawText, bureauHint, provider, userId, reportId, true);
       
       const retryTradelineCount = (parsed.tradelines || []).length;
       const retryCollectionCount = (parsed.collections || []).length;
       
       if (retryTradelineCount === 0 && retryCollectionCount === 0) {
-        console.error(`❌ RETRY ALSO FAILED - Still 0 accounts. OCR text may be corrupted.`);
+        console.error(`❌ RETRY ALSO FAILED - Still 0 accounts. AI parsing issue.`);
+        console.error(`   Text length: ${rawText.length} chars`);
+        console.error(`   Has credit keywords: ${hasKeywords}`);
         console.error(`   First 2000 chars of OCR text: ${rawText.substring(0, 2000)}`);
         throw new Error("Could not extract any accounts from your credit report after multiple attempts. The PDF may be scanned poorly or in an unsupported format. Please try uploading a clearer copy.");
       } else {
