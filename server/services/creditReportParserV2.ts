@@ -314,8 +314,8 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
   const { rawText, bureauHint, provider = "IDENTITYIQ", userId, existingReportId } = params;
 
   if (!openai) {
-    console.warn("⚠️ OpenAI not configured - using fallback parser");
-    return buildFallbackReport(userId, bureauHint, existingReportId);
+    console.error("❌ OpenAI not configured - cannot parse credit report");
+    throw new Error("OpenAI API not configured. Please contact support to enable credit report parsing.");
   }
 
   try {
@@ -338,6 +338,7 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
       if (retryTradelineCount === 0 && retryCollectionCount === 0) {
         console.error(`❌ RETRY ALSO FAILED - Still 0 accounts. OCR text may be corrupted.`);
         console.error(`   First 1000 chars of OCR text: ${rawText.substring(0, 1000)}`);
+        throw new Error("Could not extract any accounts from your credit report after multiple attempts. The PDF may be scanned poorly or in an unsupported format. Please try uploading a clearer copy.");
       } else {
         console.log(`✅ RETRY SUCCEEDED - Found ${retryTradelineCount} tradelines, ${retryCollectionCount} collections`);
       }
