@@ -48,7 +48,9 @@ import { ObjectPermission } from "./objectAcl";
 const BUILD_VERSION = "2025-12-04-v20-bucket-agnostic";
 const BUILD_TIMESTAMP = new Date().toISOString();
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export async function registerRoutes(app: Express, existingServer?: Server): Promise<Server> {
+  // Use existing server if provided, otherwise create new one
+  const httpServer = existingServer || createServer(app);
   // Serve objects from Object Storage (requires auth to check ownership)
   app.get("/objects/:objectPath(*)", requireAuth, async (req: any, res) => {
     const objectStorage = new ObjectStorageService();
@@ -3086,6 +3088,5 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  const httpServer = createServer(app);
   return httpServer;
 }
