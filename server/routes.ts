@@ -1170,7 +1170,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (normalized) candidates.push(normalized);
             }
           }
-          if (candidates.length > 0) return [...new Set(candidates)];
+          if (candidates.length > 0) return Array.from(new Set(candidates));
           
           const details = issue.details || {};
           
@@ -1187,7 +1187,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (normalized) candidates.push(normalized);
             }
           }
-          if (candidates.length > 0) return [...new Set(candidates)];
+          if (candidates.length > 0) return Array.from(new Set(candidates));
           
           // 4. Fallback: extract from details.bureauSnapshots (array of objects)
           if (details.bureauSnapshots && Array.isArray(details.bureauSnapshots)) {
@@ -1196,12 +1196,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (normalized) candidates.push(normalized);
             }
           }
-          if (candidates.length > 0) return [...new Set(candidates)];
+          if (candidates.length > 0) return Array.from(new Set(candidates));
           
           // 5. True deep traversal of entire issue object
           const deepFound = new Set<string>();
           deepFindBureaus(issue, deepFound);
-          if (deepFound.size > 0) return [...deepFound];
+          if (deepFound.size > 0) return Array.from(deepFound);
           
           // 6. Final fallback: report-level bureau only if it's a valid single-bureau report
           const fallbackNormalized = normalizeBureauValue(fallbackBureau);
@@ -1701,7 +1701,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (normalized) candidates.push(normalized);
               }
             }
-            if (candidates.length > 0) return [...new Set(candidates)];
+            if (candidates.length > 0) return Array.from(new Set(candidates));
             const details = issue.details || {};
             if (details.bureau) {
               const normalized = normalizeBureauValue(details.bureau);
@@ -1713,18 +1713,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (normalized) candidates.push(normalized);
               }
             }
-            if (candidates.length > 0) return [...new Set(candidates)];
+            if (candidates.length > 0) return Array.from(new Set(candidates));
             if (details.bureauSnapshots && Array.isArray(details.bureauSnapshots)) {
               for (const bs of details.bureauSnapshots) {
                 const normalized = normalizeBureauValue(bs);
                 if (normalized) candidates.push(normalized);
               }
             }
-            if (candidates.length > 0) return [...new Set(candidates)];
+            if (candidates.length > 0) return Array.from(new Set(candidates));
             // True deep traversal as last resort
             const deepFound = new Set<string>();
             deepFindBureaus(issue, deepFound);
-            if (deepFound.size > 0) return [...deepFound];
+            if (deepFound.size > 0) return Array.from(deepFound);
             // Final fallback: report-level bureau only
             const fallbackNormalized = normalizeBureauValue(fallbackBureau);
             if (fallbackNormalized) return [fallbackNormalized];
@@ -2049,7 +2049,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (normalized) candidates.push(normalized);
             }
           }
-          if (candidates.length > 0) return [...new Set(candidates)];
+          if (candidates.length > 0) return Array.from(new Set(candidates));
           const details = issue.details || {};
           if (details.bureau) {
             const normalized = normalizeBureauValue(details.bureau);
@@ -2061,18 +2061,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (normalized) candidates.push(normalized);
             }
           }
-          if (candidates.length > 0) return [...new Set(candidates)];
+          if (candidates.length > 0) return Array.from(new Set(candidates));
           if (details.bureauSnapshots && Array.isArray(details.bureauSnapshots)) {
             for (const bs of details.bureauSnapshots) {
               const normalized = normalizeBureauValue(bs);
               if (normalized) candidates.push(normalized);
             }
           }
-          if (candidates.length > 0) return [...new Set(candidates)];
+          if (candidates.length > 0) return Array.from(new Set(candidates));
           // True deep traversal as last resort
           const deepFound = new Set<string>();
           deepFindBureaus(issue, deepFound);
-          if (deepFound.size > 0) return [...deepFound];
+          if (deepFound.size > 0) return Array.from(deepFound);
           // Final fallback: report-level bureau only
           const fallbackNormalized = normalizeBureauValue(fallbackBureau);
           if (fallbackNormalized) return [fallbackNormalized];
