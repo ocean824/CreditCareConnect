@@ -11,7 +11,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle, Clock, AlertCircle, FileText, Download, Eye, RefreshCw } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, FileText, Download, Eye, RefreshCw, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { useMutation } from "@tanstack/react-query";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { CreditReport, Violation, DisputeLetter } from "@shared/schema";
@@ -36,6 +49,49 @@ export default function Dashboard() {
   const { data: disputeLetters } = useQuery<DisputeLetter[]>({
     queryKey: ["/api/dispute-letters"],
     enabled: !!user,
+  });
+
+  const retentionMutation = useMutation({
+    mutationFn: async ({ reportId, retain }: { reportId: string; retain: boolean }) => {
+      const response = await apiRequest('PATCH', `/api/credit-reports/${reportId}/retention`, { retain });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
+      toast({
+        title: "Setting Updated",
+        description: "Analysis retention preference saved.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Update",
+        description: error.message || "Could not update retention setting",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteReportMutation = useMutation({
+    mutationFn: async (reportId: string) => {
+      const response = await apiRequest('DELETE', `/api/credit-reports/${reportId}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/credit-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/violations"] });
+      toast({
+        title: "Report Deleted",
+        description: "Credit report has been removed.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Delete Failed",
+        description: error.message || "Could not delete report",
+        variant: "destructive",
+      });
+    },
   });
 
   const handleReanalyzeAll = async () => {
@@ -236,6 +292,106 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* My Credit Reports - Toggle and Delete Controls */}
+            {creditReports && creditReports.length > 0 && (
+              <Card data-testid="card-my-reports">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    My Credit Reports
+                    <Badge variant="secondary">{creditReports.length} Report(s)</Badge>
+                  </CardTitle>
+                  <CardDescription>Manage your uploaded credit reports</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {creditReports.map((report) => (
+                      <div 
+                        key={report.id} 
+                        className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border"
+                        data-testid={`report-item-${report.id}`}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-5 h-5 text-blue-500" />
+                            <div>
+                              <p className="font-medium text-sm">{report.fileName}</p>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span>{report.bureau || 'TRI-MERGE'}</span>
+                                <span>•</span>
+                                <span>
+                                  {report.analysisStatus === 'COMPLETED' ? (
+                                    <span className="text-green-600">Analyzed</span>
+                                  ) : report.analysisStatus === 'ANALYZING' ? (
+                                    <span className="text-yellow-600">Analyzing...</span>
+                                  ) : report.analysisStatus === 'FAILED' ? (
+                                    <span className="text-red-600">Failed</span>
+                                  ) : (
+                                    <span className="text-gray-600">Pending</span>
+                                  )}
+                                </span>
+                                {report.analysisNumber && (
+                                  <>
+                                    <span>•</span>
+                                    <span>Analysis #{report.analysisNumber}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                          {/* Retention Toggle */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">Keep Analysis</span>
+                            <Switch
+                              checked={report.retainAnalysis ?? true}
+                              onCheckedChange={(checked) => {
+                                retentionMutation.mutate({ reportId: report.id, retain: checked });
+                              }}
+                              disabled={retentionMutation.isPending}
+                              data-testid={`toggle-retention-${report.id}`}
+                            />
+                          </div>
+                          
+                          {/* Delete Button */}
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button 
+                                variant="destructive" 
+                                size="sm"
+                                data-testid={`button-delete-${report.id}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Credit Report?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This will permanently delete "{report.fileName}" and all associated violations. This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteReportMutation.mutate(report.id)}
+                                  className="bg-red-600 hover:bg-red-700"
+                                  data-testid={`confirm-delete-${report.id}`}
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Main Content Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
