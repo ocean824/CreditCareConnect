@@ -198,7 +198,7 @@ function buildUserPrompt(
   userId: string,
   existingReportId?: string
 ): string {
-  // GPT-5 supports 128k tokens. Each token ≈ 4 chars, so ~512k chars max.
+  // GPT-4o supports 128k context tokens with 16k max completion tokens.
   // Reserve ~100k chars for system prompt + JSON response = ~400k chars for report text.
   // CRITICAL: Using 900k caused the model to drop bureau sections and return 0 accounts!
   const MAX_TEXT_LENGTH = 400000;
@@ -279,7 +279,7 @@ async function parseWithRetry(
         },
       ],
       response_format: { type: "json_object" },
-      max_completion_tokens: 32768,
+      max_completion_tokens: 16384,
     });
 
     const content = response.choices[0]?.message?.content;
