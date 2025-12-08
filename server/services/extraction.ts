@@ -62,37 +62,61 @@ async function extractFromPdf(filePath: string): Promise<ExtractionResult> {
 
 async function extractFromPdfWithOcr(filePath: string, dataBuffer: Buffer): Promise<ExtractionResult> {
   try {
+    console.log(`📸 [OCR] Starting Tesseract OCR extraction...`);
     const convert = fromBuffer(dataBuffer, {
-      density: 200,
+      density: 300, // Increased from 200 for better quality
       format: 'png',
-      width: 2000,
-      height: 2600,
+      width: 2400,  // Increased for better text clarity
+      height: 3100, // Increased for better text clarity
     });
     
     const pages = await convert.bulk(-1, { responseType: 'base64' });
     
     if (!pages || pages.length === 0) {
-      throw new Error('No pages extracted from PDF');
+      console.error(`❌ [OCR] No pages extracted from PDF`);
+      throw new Error('No pages extracted from PDF - file may be corrupted or encrypted');
     }
     
+    console.log(`📸 [OCR] Processing ${pages.length} pages...`);
     let allText = '';
     let totalConfidence = 0;
+    let processedPages = 0;
     
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
-      if (!page.base64) continue;
+      if (!page.base64) {
+        console.log(`⚠️ [OCR] Page ${i + 1} has no image data, skipping`);
+        continue;
+      }
       
-      const imageBuffer = Buffer.from(page.base64, 'base64');
-      
-      const result = await Tesseract.recognize(imageBuffer, 'eng', {
-        logger: () => {},
-      });
-      
-      allText += result.data.text + '\n\n';
-      totalConfidence += result.data.confidence;
+      try {
+        const imageBuffer = Buffer.from(page.base64, 'base64');
+        
+        const result = await Tesseract.recognize(imageBuffer, 'eng', {
+          logger: () => {},
+        });
+        
+        allText += result.data.text + '\n\n';
+        totalConfidence += result.data.confidence;
+        processedPages++;
+        
+        // Log progress every 5 pages
+        if ((i + 1) % 5 === 0 || i === pages.length - 1) {
+          console.log(`📸 [OCR] Processed ${i + 1}/${pages.length} pages (${allText.length} chars)`);
+        }
+      } catch (pageError: any) {
+        console.log(`⚠️ [OCR] Failed to OCR page ${i + 1}: ${pageError.message}`);
+      }
     }
     
-    const avgConfidence = pages.length > 0 ? totalConfidence / pages.length : 0;
+    const avgConfidence = processedPages > 0 ? totalConfidence / processedPages : 0;
+    
+    console.log(`✅ [OCR] Extracted ${allText.length} chars, avg confidence: ${(avgConfidence).toFixed(1)}%`);
+    
+    // Log sample text for debugging
+    if (allText.length > 0) {
+      console.log(`📄 [OCR] Sample: ${allText.substring(0, 500).replace(/\n/g, ' ')}`);
+    }
     
     return {
       text: allText.trim(),
@@ -100,9 +124,9 @@ async function extractFromPdfWithOcr(filePath: string, dataBuffer: Buffer): Prom
       confidence: avgConfidence / 100,
       pageCount: pages.length,
     };
-  } catch (error) {
-    console.error('[extraction] OCR failed:', error);
-    throw new Error(`Failed to extract text from PDF: ${error}`);
+  } catch (error: any) {
+    console.error('[extraction] OCR failed:', error.message);
+    throw new Error(`Failed to extract text from PDF: ${error.message}`);
   }
 }
 

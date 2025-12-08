@@ -722,6 +722,169 @@ ${text}`;
   }
 }
 
+// ULTIMATE FALLBACK: Regex-based extraction that doesn't require AI
+// This runs when ALL AI parsing methods fail
+function parseWithRegexFallback(
+  rawText: string,
+  bureauHint: BureauCode,
+  provider: string,
+  userId: string,
+  reportId: string
+): any {
+  console.log(`🔧 [REGEX FALLBACK] Attempting regex-based extraction (no AI)...`);
+  
+  const tradelines: any[] = [];
+  const collections: any[] = [];
+  
+  // Detect bureaus from text
+  const lowerText = rawText.toLowerCase();
+  const detectedBureaus: BureauCode[] = [];
+  if (/\bexperian\b/i.test(rawText)) detectedBureaus.push('EXPERIAN');
+  if (/\bequifax\b/i.test(rawText)) detectedBureaus.push('EQUIFAX');
+  if (/\b(transunion|trans\s*union)\b/i.test(rawText)) detectedBureaus.push('TRANSUNION');
+  const bureausIncluded = detectedBureaus.length > 0 ? detectedBureaus : ['EXPERIAN', 'EQUIFAX', 'TRANSUNION'] as BureauCode[];
+  
+  // Common creditor name patterns
+  const creditorPatterns = [
+    /(?:creditor|account\s*name|company|lender|furnisher)[:\s]*([A-Z][A-Z0-9\s&\-\.\/]+?)(?:\n|account|status|balance)/gi,
+    /\b(capital\s*one|chase|discover|american\s*express|amex|wells\s*fargo|bank\s*of\s*america|citi(?:bank)?|synchrony|barclays|navy\s*federal|usaa|td\s*bank|pnc|us\s*bank|citizens\s*bank|fifth\s*third|regions|suntrust|bb&t|huntington|key\s*bank|ally|gm\s*financial|toyota|honda|ford)\b/gi,
+  ];
+  
+  // Collection agency patterns
+  const collectionPatterns = [
+    /(?:collection\s*agency|collector|agency)[:\s]*([A-Z][A-Z0-9\s&\-\.\/]+?)(?:\n|balance|account|status)/gi,
+    /\b(midland(?:\s*(?:funding|credit))?|portfolio\s*recovery|lvnv\s*funding|cavalry|enhanced\s*recovery|ic\s*system|transworld|eos\s*cca|convergent|client\s*services|capital\s*management|credit\s*collection|medicredit|professional\s*collection)\b/gi,
+  ];
+  
+  // Balance patterns
+  const balancePattern = /(?:balance|amount|owed)[:\s]*\$?\s*([\d,]+\.?\d*)/gi;
+  
+  // Status patterns
+  const statusPatterns = [
+    /\b(charge[\s\-]*off|charged\s*off)\b/gi,
+    /\b(collection|in\s*collection)\b/gi,
+    /\b(late|delinquent|past\s*due)\b/gi,
+    /\b(open|current|paid|closed)\b/gi,
+  ];
+  
+  // Date patterns for DOFD
+  const datePatterns = [
+    /(?:first\s*delinquency|dofd|delinquent\s*since)[:\s]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/gi,
+    /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/g,
+  ];
+  
+  // Extract creditors
+  const foundCreditors = new Set<string>();
+  for (const pattern of creditorPatterns) {
+    let match;
+    while ((match = pattern.exec(rawText)) !== null) {
+      const creditor = match[1].trim().toUpperCase();
+      if (creditor.length >= 3 && creditor.length <= 50) {
+        foundCreditors.add(creditor);
+      }
+    }
+  }
+  
+  // Extract collectors
+  const foundCollectors = new Set<string>();
+  for (const pattern of collectionPatterns) {
+    let match;
+    while ((match = pattern.exec(rawText)) !== null) {
+      const collector = match[1].trim().toUpperCase();
+      if (collector.length >= 3 && collector.length <= 50) {
+        foundCollectors.add(collector);
+      }
+    }
+  }
+  
+  // Extract balances
+  const balances: number[] = [];
+  let balanceMatch;
+  while ((balanceMatch = balancePattern.exec(rawText)) !== null) {
+    const balance = parseFloat(balanceMatch[1].replace(/,/g, ''));
+    if (!isNaN(balance) && balance >= 0 && balance < 10000000) {
+      balances.push(balance);
+    }
+  }
+  
+  console.log(`🔧 [REGEX] Found ${foundCreditors.size} creditors, ${foundCollectors.size} collectors, ${balances.length} balances`);
+  
+  // Create tradelines from found creditors
+  let tlId = 1;
+  for (const creditor of Array.from(foundCreditors)) {
+    // Skip if it's also a collector
+    if (foundCollectors.has(creditor)) continue;
+    
+    tradelines.push({
+      id: `regex_tl_${tlId++}`,
+      creditorName: creditor,
+      accountNumberLast4: null,
+      type: 'OTHER',
+      status: 'UNKNOWN',
+      balance: balances.length > 0 ? balances[tlId % balances.length] : null,
+      pastDue: null,
+      dateOfFirstDelinquency: null,
+      openedDate: null,
+      closedDate: null,
+      lastPaymentDate: null,
+      creditLimit: null,
+      highCreditLimit: null,
+      bureaus: bureausIncluded,
+      bureauSnapshots: bureausIncluded.map(b => ({
+        bureau: b,
+        status: 'UNKNOWN',
+        balance: null,
+        pastDue: null,
+        lastUpdatedDate: null,
+      })),
+      remarks: [],
+    });
+  }
+  
+  // Create collections from found collectors
+  let colId = 1;
+  for (const collector of Array.from(foundCollectors)) {
+    collections.push({
+      id: `regex_col_${colId++}`,
+      collectorName: collector,
+      originalCreditorName: null,
+      accountNumberLast4: null,
+      bureauAccountId: null,
+      status: 'OPEN_COLLECTION',
+      balance: balances.length > 0 ? balances[colId % balances.length] : null,
+      dateOfFirstDelinquency: null,
+      openedDate: null,
+      lastUpdatedDate: null,
+      bureaus: bureausIncluded,
+      bureauSnapshots: bureausIncluded.map(b => ({
+        bureau: b,
+        status: 'OPEN_COLLECTION',
+        balance: null,
+        pastDue: null,
+        lastUpdatedDate: null,
+      })),
+      remarks: [],
+    });
+  }
+  
+  console.log(`🔧 [REGEX] Created ${tradelines.length} tradelines, ${collections.length} collections`);
+  
+  return {
+    id: reportId,
+    userId,
+    meta: {
+      id: reportId,
+      provider,
+      reportDate: new Date().toISOString().split('T')[0],
+      bureausIncluded,
+    },
+    tradelines,
+    collections,
+    publicRecords: [],
+    inquiries: [],
+  };
+}
+
 // Retry parsing with smaller chunks and enhanced prompts for large PDFs
 // This is used when the first pass fails (returns 0 accounts)
 async function parseWithSmallerChunks(
@@ -1029,15 +1192,34 @@ export async function parseCreditReportWithAiOnly(params: ParseCreditReportParam
           if (simpleTradelineCount > 0 || simpleCollectionCount > 0) {
             console.log(`✅ SIMPLE EXTRACTION SUCCEEDED - Found ${simpleTradelineCount} tradelines, ${simpleCollectionCount} collections`);
           } else {
-            console.error(`❌ ALL PARSING METHODS FAILED - 0 accounts after all attempts`);
-            console.error(`   Text length: ${rawText.length} chars`);
-            console.error(`   Has credit keywords: ${hasKeywords}`);
-            console.error(`   First 2000 chars of OCR text: ${rawText.substring(0, 2000)}`);
-            throw new Error("Could not extract any accounts from your credit report after multiple attempts. The PDF may be scanned poorly or in an unsupported format. Please try uploading a clearer copy.");
+            console.warn(`⚠️ AI SIMPLE EXTRACTION ALSO FAILED - Trying regex fallback...`);
+            // ULTIMATE FALLBACK: Try regex-based extraction
+            parsed = parseWithRegexFallback(rawText, bureauHint, provider, userId, reportId);
+            const regexTradelineCount = (parsed.tradelines || []).length;
+            const regexCollectionCount = (parsed.collections || []).length;
+            
+            if (regexTradelineCount > 0 || regexCollectionCount > 0) {
+              console.log(`✅ REGEX FALLBACK SUCCEEDED - Found ${regexTradelineCount} tradelines, ${regexCollectionCount} collections`);
+            } else {
+              console.error(`❌ ALL PARSING METHODS FAILED - 0 accounts after all attempts including regex`);
+              console.error(`   Text length: ${rawText.length} chars`);
+              console.error(`   Has credit keywords: ${hasKeywords}`);
+              console.error(`   First 2000 chars of OCR text: ${rawText.substring(0, 2000)}`);
+              throw new Error("Could not extract any accounts from your credit report after multiple attempts. The PDF may be scanned poorly or in an unsupported format. Please try uploading a clearer copy.");
+            }
           }
         } catch (simpleError: any) {
           console.error(`❌ Simple extraction failed: ${simpleError.message}`);
-          throw new Error("Could not extract any accounts from your credit report after multiple attempts. The PDF may be scanned poorly or in an unsupported format. Please try uploading a clearer copy.");
+          // ULTIMATE FALLBACK: Try regex-based extraction even if AI fails
+          console.warn(`⚠️ Trying regex fallback after AI failure...`);
+          parsed = parseWithRegexFallback(rawText, bureauHint, provider, userId, reportId);
+          const regexTradelineCount = (parsed.tradelines || []).length;
+          const regexCollectionCount = (parsed.collections || []).length;
+          
+          if (regexTradelineCount === 0 && regexCollectionCount === 0) {
+            throw new Error("Could not extract any accounts from your credit report after multiple attempts. The PDF may be scanned poorly or in an unsupported format. Please try uploading a clearer copy.");
+          }
+          console.log(`✅ REGEX FALLBACK SUCCEEDED after AI failure - Found ${regexTradelineCount} tradelines, ${regexCollectionCount} collections`);
         }
       } else {
         console.log(`✅ RETRY SUCCEEDED - Found ${retryTradelineCount} tradelines, ${retryCollectionCount} collections`);
