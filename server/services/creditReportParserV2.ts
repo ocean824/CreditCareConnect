@@ -25,7 +25,8 @@ const openai = useReplitAI
     })
   : (userApiKey ? new OpenAI({ apiKey: userApiKey }) : null);
 
-const OPENAI_MODEL = useReplitAI ? "gpt-5" : (process.env.OPENAI_MODEL || "gpt-4o");
+// CRITICAL: gpt-5 may not work with Replit AI Integrations - use gpt-4o as fallback
+const OPENAI_MODEL = useReplitAI ? "gpt-4o" : (process.env.OPENAI_MODEL || "gpt-4o");
 
 if (useReplitAI) {
   console.log("✅ Using Replit AI Integrations for credit report parsing");

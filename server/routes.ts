@@ -114,7 +114,7 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
       features: ['force-reanalyze', 'diagnostic-endpoint', 'v2-parser', 'cleanup-orphaned'],
       openaiConfigured: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY || !!process.env.OPENAI_API_KEY,
       usingReplitAI: !!(process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY),
-      model: (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY) ? 'gpt-5' : (process.env.OPENAI_MODEL || 'gpt-4o')
+      model: (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY) ? 'gpt-4o' : (process.env.OPENAI_MODEL || 'gpt-4o')
     });
   });
   
@@ -125,7 +125,7 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
       const useReplitAI = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
       const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
       const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-      const model = useReplitAI ? "gpt-5" : (process.env.OPENAI_MODEL || "gpt-4o");
+      const model = useReplitAI ? "gpt-4o" : (process.env.OPENAI_MODEL || "gpt-4o");
       
       if (!apiKey) {
         return res.json({ 
