@@ -300,10 +300,17 @@ async function parseWithRetry(
     try {
       const parsed = JSON.parse(content);
       
-      // Log what we got
+      // Log what we got - ENHANCED for debugging
       const tradelineCount = (parsed.tradelines || []).length;
       const collectionCount = (parsed.collections || []).length;
       console.log(`   Parsed result: ${tradelineCount} tradelines, ${collectionCount} collections`);
+      
+      // If zero accounts, log full response for debugging
+      if (tradelineCount === 0 && collectionCount === 0) {
+        console.warn(`⚠️ AI returned 0 accounts - logging full response for debugging:`);
+        console.warn(`   Response keys: ${Object.keys(parsed).join(', ')}`);
+        console.warn(`   Full response (first 3000 chars): ${content.substring(0, 3000)}`);
+      }
       
       // Log a sample if we got data
       if (tradelineCount > 0) {
