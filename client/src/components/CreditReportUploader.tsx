@@ -112,10 +112,10 @@ export default function CreditReportUploader() {
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) { // 10MB limit
+    if (file.size > 100 * 1024 * 1024) { // 100MB limit
       toast({
         title: "File Too Large",
-        description: "Please select a file smaller than 10MB.",
+        description: "Please select a file smaller than 100MB.",
         variant: "destructive",
       });
       return;
@@ -177,7 +177,7 @@ export default function CreditReportUploader() {
               {isDragActive ? "Drop your credit report here" : "Upload Your Credit Report"}
             </p>
             <p className="text-xs text-muted-foreground">
-              Drag & drop or click to select (PDF, up to 10MB)
+              Drag & drop or click to select (PDF, up to 100MB)
             </p>
           </div>
           

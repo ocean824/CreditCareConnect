@@ -161,6 +161,73 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
     }
   });
 
+  // Diagnostic endpoint to test AI credit report parsing
+  app.get('/api/diagnostic/test-parsing', async (req, res) => {
+    try {
+      const { parseCreditReportWithAiOnly } = await import('./services/creditReportParserV2');
+      
+      // Sample credit report text to test parsing
+      const sampleText = `
+EXPERIAN CREDIT REPORT
+Report Date: 12/01/2025
+
+ACCOUNT INFORMATION
+
+Account Name: CAPITAL ONE
+Account Number: ****1234
+Account Type: Credit Card
+Status: Open
+Balance: $1,500
+Credit Limit: $5,000
+Date Opened: 01/15/2020
+Last Payment: 11/15/2025
+
+Account Name: CHASE BANK
+Account Number: ****5678
+Account Type: Credit Card
+Status: Closed
+Balance: $0
+Credit Limit: $10,000
+Date Opened: 06/20/2018
+Date Closed: 05/01/2024
+
+COLLECTION ACCOUNTS
+
+Collection Agency: MIDLAND FUNDING
+Original Creditor: SYNCHRONY BANK
+Account Number: ****9999
+Balance: $2,500
+Status: Collection
+Date Opened: 03/15/2023
+`;
+
+      console.log(`🧪 [DIAGNOSTIC] Testing AI parsing with sample text (${sampleText.length} chars)...`);
+      
+      const result = await parseCreditReportWithAiOnly({
+        rawText: sampleText,
+        bureauHint: 'EXPERIAN',
+        provider: 'TEST',
+        userId: 'diagnostic-test',
+      });
+      
+      res.json({ 
+        success: true, 
+        tradelines: result.tradelines.length,
+        collections: result.collections.length,
+        sampleTradeline: result.tradelines[0] || null,
+        sampleCollection: result.collections[0] || null,
+        bureausIncluded: result.meta.bureausIncluded
+      });
+    } catch (error: any) {
+      console.error(`❌ [DIAGNOSTIC] Parsing test failed:`, error.message);
+      res.json({ 
+        success: false, 
+        error: error.message,
+        stack: error.stack?.substring(0, 500)
+      });
+    }
+  });
+
   // Import rules engine for test endpoint
   const { runAllRules } = await import('./rules/engine');
   
@@ -743,7 +810,7 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
       }
     }),
     limits: {
-      fileSize: 10 * 1024 * 1024, // 10MB limit
+      fileSize: 100 * 1024 * 1024, // 100MB limit
     },
     fileFilter: (req, file, cb) => {
       const allowedMimes = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -2879,7 +2946,7 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
   const upload = multer({
     dest: process.env.FILES_DIR || "./files",
     limits: {
-      fileSize: 10 * 1024 * 1024, // 10MB limit
+      fileSize: 100 * 1024 * 1024, // 100MB limit
     },
     fileFilter: (req, file, cb) => {
       const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
