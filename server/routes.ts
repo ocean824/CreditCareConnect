@@ -2735,7 +2735,7 @@ Date Opened: 03/15/2023
       });
       
       const filename = `${bureau}_dispute_round${round}_${Date.now()}.docx`;
-      const docxUrl = await saveDisputeLetterDocx(docxBuffer, filename);
+      const docxUrl = await saveDisputeLetterDocx(docxBuffer, filename, userId);
       console.log('📨 [LETTER] Word document saved:', docxUrl);
 
       console.log('📨 [LETTER] Creating dispute letter in database...');
@@ -2826,21 +2826,36 @@ Date Opened: 03/15/2023
         return res.status(404).json({ message: "Document not available for this letter" });
       }
 
-      const filePath = path.join(process.cwd(), letter.pdfUrl);
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ message: "Document file not found" });
-      }
-
       const isDocx = letter.pdfUrl.endsWith('.docx');
       const filename = `${letter.bureau}_Dispute_Letter_Round${letter.round}.${isDocx ? 'docx' : 'pdf'}`;
       
-      if (isDocx) {
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      // Check if the letter is stored in Object Storage (URLs start with /objects/)
+      if (letter.pdfUrl.startsWith('/objects/')) {
+        const objectStorage = new ObjectStorageService();
+        const buffer = await objectStorage.downloadToBuffer(letter.pdfUrl);
+        
+        if (isDocx) {
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        } else {
+          res.setHeader('Content-Type', 'application/pdf');
+        }
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(buffer);
       } else {
-        res.setHeader('Content-Type', 'application/pdf');
+        // Legacy: local file system
+        const filePath = path.join(process.cwd(), letter.pdfUrl);
+        if (!fs.existsSync(filePath)) {
+          return res.status(404).json({ message: "Document file not found" });
+        }
+
+        if (isDocx) {
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        } else {
+          res.setHeader('Content-Type', 'application/pdf');
+        }
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.sendFile(filePath);
       }
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.sendFile(filePath);
     } catch (error) {
       console.error("Error downloading dispute letter:", error);
       res.status(500).json({ message: "Failed to download dispute letter" });

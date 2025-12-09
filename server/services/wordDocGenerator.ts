@@ -8,8 +8,7 @@ import {
   BorderStyle,
   PageBreak,
 } from "docx";
-import * as fs from "fs";
-import * as path from "path";
+import { ObjectStorageService } from "../objectStorage";
 
 interface UserInfo {
   name: string;
@@ -240,15 +239,19 @@ export async function generateDisputeLetterDocx(params: DisputeLetterParams): Pr
 
 export async function saveDisputeLetterDocx(
   buffer: Buffer,
-  filename: string
+  filename: string,
+  userId?: string
 ): Promise<string> {
-  const uploadsDir = path.join(process.cwd(), "uploads", "letters");
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-
-  const filePath = path.join(uploadsDir, filename);
-  fs.writeFileSync(filePath, buffer);
-
-  return `uploads/letters/${filename}`;
+  const objectStorage = new ObjectStorageService();
+  
+  // Upload to Object Storage with proper content type for Word docs
+  const objectUrl = await objectStorage.uploadBuffer(
+    buffer,
+    filename,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    userId
+  );
+  
+  console.log(`✅ [LETTER] Word document saved to Object Storage: ${objectUrl}`);
+  return objectUrl;
 }
