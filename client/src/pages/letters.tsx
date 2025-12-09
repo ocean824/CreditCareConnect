@@ -150,48 +150,21 @@ export default function Letters() {
     );
   }
 
-  const handleDownloadLetter = async (letterId: string) => {
-    // Debug alert to confirm button was clicked
-    window.alert(`Download clicked for letter: ${letterId}`);
-    
-    try {
-      // Fetch with credentials to pass session cookie
-      const response = await fetch(`/api/dispute-letters/${letterId}/download`, {
-        method: 'GET',
-        credentials: 'include',
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        window.alert(`Download error: ${response.status} - ${errorText}`);
-        return;
-      }
-      
-      // Get the filename from Content-Disposition header or use default
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'Dispute_Letter.docx';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?([^";\n]+)"?/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
-      }
-      
-      // Create blob and download
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      window.alert('Download complete!');
-    } catch (error: any) {
-      window.alert(`Download network error: ${error.message}`);
+  const handleDownloadLetter = (letterId: string) => {
+    const letter = disputeLetters?.find(l => l.id === letterId);
+    if (!letter || !letter.pdfUrl) {
+      window.alert('Letter or document URL not found');
+      return;
     }
+    
+    // Direct download via API endpoint - let the browser handle it
+    const downloadUrl = `/api/dispute-letters/${letterId}/download`;
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = `${letter.bureau}_Dispute_Letter.docx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handlePreviewLetter = (letterId: string) => {
