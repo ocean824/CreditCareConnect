@@ -249,16 +249,19 @@ export default function Letters() {
                     data-testid={`button-download-${letter.bureau.toLowerCase()}`}
                   >
                     <Download className="w-4 h-4 mr-2" />
-                    Download PDF
+                    Download Word Doc
                   </Button>
                   <Button 
                     variant="outline" 
                     className="w-full"
-                    onClick={() => handlePreviewLetter(letter.id)}
+                    onClick={() => {
+                      setSelectedLetter(letter.id);
+                      handlePreviewLetter(letter.id);
+                    }}
                     data-testid={`button-preview-${letter.bureau.toLowerCase()}`}
                   >
                     <Eye className="w-4 h-4 mr-2" />
-                    Preview Letter
+                    View Letter
                   </Button>
                   {letter.status === "GENERATED" && user?.plan === "DONE_FOR_YOU" && (
                     <Button 
@@ -282,7 +285,7 @@ export default function Letters() {
                   <p className="text-muted-foreground mb-4">
                     Analyze your credit reports first to generate dispute letters
                   </p>
-                  <Button variant="outline" data-testid="button-go-to-analysis">
+                  <Button variant="outline" data-testid="button-go-to-analysis" onClick={() => window.location.href = '/analysis'}>
                     Go to Analysis
                   </Button>
                 </CardContent>

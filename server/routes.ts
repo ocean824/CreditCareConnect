@@ -2709,8 +2709,34 @@ Date Opened: 03/15/2023
       let letterType = "INITIAL";
       if (round === 2) letterType = "FOLLOW_UP";
       if (round === 3) letterType = "CFPB";
+
+      console.log('📨 [LETTER] Generating Word document...');
       
-      let pdfBuffer = Buffer.from("Sample PDF content");
+      const { generateDisputeLetterDocx, saveDisputeLetterDocx } = await import('./services/wordDocGenerator');
+      
+      const docxBuffer = await generateDisputeLetterDocx({
+        userInfo: {
+          name: userInfo.name,
+          addressLine1: userInfo.addressLine1,
+          city: userInfo.city,
+          state: userInfo.state,
+          zip: userInfo.zip,
+          email: userInfo.email
+        },
+        bureau,
+        violations: selectedViolations.map(v => ({
+          accountName: v.accountName,
+          accountNumber: v.accountNumber || undefined,
+          description: v.description,
+          statute: v.statute
+        })),
+        round: round as 1 | 2 | 3,
+        letterContent
+      });
+      
+      const filename = `${bureau}_dispute_round${round}_${Date.now()}.docx`;
+      const docxUrl = await saveDisputeLetterDocx(docxBuffer, filename);
+      console.log('📨 [LETTER] Word document saved:', docxUrl);
 
       console.log('📨 [LETTER] Creating dispute letter in database...');
       console.log('📨 [LETTER] Letter data:', { userId, bureau, letterType, round, recipientType });
@@ -2725,7 +2751,7 @@ Date Opened: 03/15/2023
           recipientType,
           recipientName: recipientName || undefined,
           content: letterContent,
-          pdfUrl: `/api/dispute-letters/${bureau.toLowerCase()}-dispute-round${round}.pdf`,
+          pdfUrl: docxUrl,
           status: "GENERATED"
         });
         console.log('📨 [LETTER] Letter saved to database:', disputeLetter.id);
@@ -2752,7 +2778,7 @@ Date Opened: 03/15/2023
               state: userInfo.state,
               zip: userInfo.zip
             },
-            document: pdfBuffer.toString('base64')
+            document: docxBuffer.toString('base64')
           });
 
           await storage.updateDisputeLetterStatus(
@@ -2796,23 +2822,54 @@ Date Opened: 03/15/2023
         return res.status(404).json({ message: "Letter not found" });
       }
 
-      // Check if PDF URL exists
       if (!letter.pdfUrl) {
-        return res.status(404).json({ message: "PDF not available for this letter" });
+        return res.status(404).json({ message: "Document not available for this letter" });
       }
 
-      // Read the PDF file from disk
-      const pdfPath = path.join(process.cwd(), letter.pdfUrl);
-      if (!fs.existsSync(pdfPath)) {
-        return res.status(404).json({ message: "PDF file not found" });
+      const filePath = path.join(process.cwd(), letter.pdfUrl);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ message: "Document file not found" });
       }
 
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${letter.bureau}-dispute-letter.pdf"`);
-      res.sendFile(pdfPath);
+      const isDocx = letter.pdfUrl.endsWith('.docx');
+      const filename = `${letter.bureau}_Dispute_Letter_Round${letter.round}.${isDocx ? 'docx' : 'pdf'}`;
+      
+      if (isDocx) {
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      } else {
+        res.setHeader('Content-Type', 'application/pdf');
+      }
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.sendFile(filePath);
     } catch (error) {
       console.error("Error downloading dispute letter:", error);
       res.status(500).json({ message: "Failed to download dispute letter" });
+    }
+  });
+
+  app.get('/api/dispute-letters/:id/view', requireActiveSubscription, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const letters = await storage.getDisputeLettersByUserId(req.session.userId);
+      const letter = letters.find(l => l.id === id);
+
+      if (!letter) {
+        return res.status(404).json({ message: "Letter not found" });
+      }
+
+      res.json({
+        id: letter.id,
+        bureau: letter.bureau,
+        letterType: letter.letterType,
+        round: letter.round,
+        content: letter.content,
+        status: letter.status,
+        createdAt: letter.createdAt,
+        hasDocument: !!letter.pdfUrl
+      });
+    } catch (error) {
+      console.error("Error viewing dispute letter:", error);
+      res.status(500).json({ message: "Failed to view dispute letter" });
     }
   });
 
