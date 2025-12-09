@@ -292,18 +292,23 @@ export default function Letters() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  <Button 
-                    className="w-full" 
-                    onClick={() => handleDownloadLetter(letter.id)}
+                  <button 
+                    type="button"
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 flex items-center justify-center"
+                    onClick={() => {
+                      window.alert('Download button clicked! Letter ID: ' + letter.id);
+                      handleDownloadLetter(letter.id);
+                    }}
                     data-testid={`button-download-${letter.bureau.toLowerCase()}`}
                   >
                     <Download className="w-4 h-4 mr-2" />
                     Download Word Doc
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    className="w-full"
+                  </button>
+                  <button 
+                    type="button"
+                    className="w-full border border-gray-300 py-2 px-4 rounded hover:bg-gray-100 flex items-center justify-center mt-2"
                     onClick={() => {
+                      window.alert('Preview button clicked! Letter ID: ' + letter.id);
                       setSelectedLetter(letter.id);
                       handlePreviewLetter(letter.id);
                     }}
@@ -311,7 +316,7 @@ export default function Letters() {
                   >
                     <Eye className="w-4 h-4 mr-2" />
                     View Letter
-                  </Button>
+                  </button>
                   {letter.status === "GENERATED" && user?.plan === "DONE_FOR_YOU" && (
                     <Button 
                       variant="secondary" 
