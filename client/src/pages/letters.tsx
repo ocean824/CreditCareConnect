@@ -151,12 +151,10 @@ export default function Letters() {
   }
 
   const handleDownloadLetter = async (letterId: string) => {
+    // Debug alert to confirm button was clicked
+    window.alert(`Download clicked for letter: ${letterId}`);
+    
     try {
-      toast({
-        title: "Downloading...",
-        description: "Preparing your Word document",
-      });
-      
       // Fetch with credentials to pass session cookie
       const response = await fetch(`/api/dispute-letters/${letterId}/download`, {
         method: 'GET',
@@ -165,7 +163,8 @@ export default function Letters() {
       
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(errorText || `Download failed: ${response.status}`);
+        window.alert(`Download error: ${response.status} - ${errorText}`);
+        return;
       }
       
       // Get the filename from Content-Disposition header or use default
@@ -189,21 +188,16 @@ export default function Letters() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
       
-      toast({
-        title: "Download Complete",
-        description: "Your dispute letter has been downloaded",
-      });
+      window.alert('Download complete!');
     } catch (error: any) {
-      console.error('Download error:', error);
-      toast({
-        title: "Download Failed",
-        description: error.message || "Could not download the letter",
-        variant: "destructive",
-      });
+      window.alert(`Download network error: ${error.message}`);
     }
   };
 
-  const handlePreviewLetter = async (letterId: string) => {
+  const handlePreviewLetter = (letterId: string) => {
+    // Debug alert to confirm button was clicked
+    window.alert(`Preview clicked for letter: ${letterId}`);
+    
     const letter = disputeLetters?.find(l => l.id === letterId);
     if (letter) {
       // Show the letter content directly in the preview section
@@ -219,12 +213,9 @@ export default function Letters() {
         content: letter.content
       });
       setShowPrintPreview(true);
+      window.alert('Preview modal should be open now');
     } else {
-      toast({
-        title: "Preview Failed",
-        description: "Could not find letter content",
-        variant: "destructive",
-      });
+      window.alert('Could not find letter in data');
     }
   };
 
