@@ -45,6 +45,10 @@ export default function Analysis() {
 
   const handleGenerateLetter = async (violation: Violation) => {
     console.log('[FRONTEND] Generate Letter clicked for violation:', violation.id, 'bureau:', violation.bureau);
+    
+    // Debug alert - will show popup to confirm button was clicked
+    alert(`Generating letter for: ${violation.accountName || 'account'}\nViolation ID: ${violation.id}\nBureau: ${violation.bureau}`);
+    
     setGeneratingLetter(violation.id);
     
     // Immediate feedback that button was clicked
@@ -88,6 +92,9 @@ export default function Analysis() {
       navigate("/letters");
     } catch (error: any) {
       console.log('[FRONTEND] Error generating letter:', error);
+      
+      // Debug alert to show exact error
+      alert(`ERROR generating letter:\n${error.message || 'Unknown error'}`);
       
       // Parse the error message - apiRequest throws "status: responseBody" format
       let errorMessage = "Could not generate dispute letter";
