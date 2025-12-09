@@ -2607,9 +2607,19 @@ Date Opened: 03/15/2023
 
   // Dispute Letters
   app.post('/api/dispute-letters/generate', requireActiveSubscription, async (req: any, res) => {
+    console.log('📨 [LETTER] Generate letter request received');
+    // Only log non-sensitive metadata (not full request body for PII compliance)
+    console.log('📨 [LETTER] Request params:', { 
+      bureau: req.body?.bureau, 
+      violationCount: req.body?.violationIds?.length || 0,
+      round: req.body?.round,
+      recipientType: req.body?.recipientType 
+    });
     try {
       const userId = req.session.userId;
+      console.log('📨 [LETTER] User ID:', userId ? 'present' : 'missing');
       const user = await storage.getUser(userId);
+      console.log('📨 [LETTER] User found:', !!user);
       
       // Validate input - now supports round and recipientType
       // Accept both upper and mixed case bureau names
@@ -2635,9 +2645,13 @@ Date Opened: 03/15/2023
 
       // Get violations for letter generation
       const allViolations = await storage.getViolationsByUserId(userId);
+      console.log('📨 [LETTER] Total violations for user:', allViolations.length);
+      console.log('📨 [LETTER] Violation IDs requested count:', violationIds?.length || 0);
       const selectedViolations = allViolations.filter(v => violationIds.includes(v.id));
+      console.log('📨 [LETTER] Matching violations found:', selectedViolations.length);
 
       if (selectedViolations.length === 0) {
+        console.log('📨 [LETTER] ERROR: No violations matched the requested IDs');
         return res.status(400).json({ message: "No violations selected" });
       }
 
@@ -2698,17 +2712,27 @@ Date Opened: 03/15/2023
       
       let pdfBuffer = Buffer.from("Sample PDF content");
 
-      const disputeLetter = await storage.createDisputeLetter({
-        userId,
-        bureau,
-        letterType,
-        round,
-        recipientType,
-        recipientName: recipientName || undefined,
-        content: letterContent,
-        pdfUrl: `/api/dispute-letters/${bureau.toLowerCase()}-dispute-round${round}.pdf`,
-        status: "GENERATED"
-      });
+      console.log('📨 [LETTER] Creating dispute letter in database...');
+      console.log('📨 [LETTER] Letter data:', { userId, bureau, letterType, round, recipientType });
+      
+      let disputeLetter;
+      try {
+        disputeLetter = await storage.createDisputeLetter({
+          userId,
+          bureau,
+          letterType,
+          round,
+          recipientType,
+          recipientName: recipientName || undefined,
+          content: letterContent,
+          pdfUrl: `/api/dispute-letters/${bureau.toLowerCase()}-dispute-round${round}.pdf`,
+          status: "GENERATED"
+        });
+        console.log('📨 [LETTER] Letter saved to database:', disputeLetter.id);
+      } catch (dbError: any) {
+        console.error('📨 [LETTER] Database error saving letter:', dbError.message);
+        throw new Error(`Failed to save letter: ${dbError.message}`);
+      }
 
       // If user is on Done-For-You plan, automatically send via Click2Mail
       if (user.plan === "DONE_FOR_YOU") {
@@ -2742,10 +2766,12 @@ Date Opened: 03/15/2023
         }
       }
 
+      console.log('📨 [LETTER] Letter created successfully:', disputeLetter.id);
       res.json(disputeLetter);
-    } catch (error) {
-      console.error("Error generating dispute letter:", error);
-      res.status(500).json({ message: "Failed to generate dispute letter" });
+    } catch (error: any) {
+      console.error("📨 [LETTER] Error generating dispute letter:", error);
+      console.error("📨 [LETTER] Error stack:", error.stack);
+      res.status(500).json({ message: error.message || "Failed to generate dispute letter" });
     }
   });
 

@@ -44,10 +44,19 @@ export default function Analysis() {
   const isReportMutating = (reportId: string) => mutatingReportIds.has(reportId);
 
   const handleGenerateLetter = async (violation: Violation) => {
+    console.log('[FRONTEND] Generate Letter clicked for violation:', violation.id, 'bureau:', violation.bureau);
     setGeneratingLetter(violation.id);
+    
+    // Immediate feedback that button was clicked
+    toast({
+      title: "Generating Letter...",
+      description: `Creating dispute letter for ${violation.accountName || 'account'}`,
+    });
+    
     try {
       // Validate and normalize bureau to uppercase for API validation
       if (!violation.bureau) {
+        console.log('[FRONTEND] Missing bureau - showing error');
         toast({
           title: "Missing Bureau",
           description: "This violation doesn't have a bureau assigned. Please re-analyze the report.",
@@ -58,6 +67,7 @@ export default function Analysis() {
       }
       
       const normalizedBureau = violation.bureau.toUpperCase() as 'EQUIFAX' | 'TRANSUNION' | 'EXPERIAN';
+      console.log('[FRONTEND] Making API request with bureau:', normalizedBureau);
       
       const response = await apiRequest('POST', '/api/dispute-letters/generate', {
         bureau: normalizedBureau,
@@ -66,28 +76,51 @@ export default function Analysis() {
         recipientType: 'BUREAU'
       });
       
-      if (response.ok) {
-        toast({
-          title: "Letter Generated",
-          description: `Dispute letter for ${violation.accountName || 'account'} created successfully`,
-        });
-        queryClient.invalidateQueries({ queryKey: ["/api/dispute-letters"] });
-        navigate("/letters");
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        toast({
-          title: "Letter Generation Failed",
-          description: errorData.message || "Could not generate dispute letter",
-          variant: "destructive",
-        });
-      }
+      // apiRequest throws on non-2xx, so if we get here, it's successful
+      console.log('[FRONTEND] API response successful');
+      const letterData = await response.json();
+      
+      toast({
+        title: "Letter Generated",
+        description: `Dispute letter for ${violation.accountName || 'account'} created successfully`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispute-letters"] });
+      navigate("/letters");
     } catch (error: any) {
+      console.log('[FRONTEND] Error generating letter:', error);
+      
+      // Parse the error message - apiRequest throws "status: responseBody" format
+      let errorMessage = "Could not generate dispute letter";
+      const rawMessage = error.message || "";
+      
+      // Extract the JSON response body after the status code (format: "statusCode: body")
+      const colonIndex = rawMessage.indexOf(':');
+      const hasStatusFormat = colonIndex > 0 && /^\d+$/.test(rawMessage.slice(0, colonIndex).trim());
+      
+      if (hasStatusFormat) {
+        const statusCode = rawMessage.slice(0, colonIndex).trim();
+        const body = rawMessage.slice(colonIndex + 1).trim();
+        console.log('[FRONTEND] Status code:', statusCode, 'Body:', body);
+        
+        // Try to parse the body as JSON
+        try {
+          const parsed = JSON.parse(body);
+          errorMessage = parsed.message || parsed.error || body;
+        } catch {
+          // Not JSON, use the body directly
+          errorMessage = body || `Server error (${statusCode})`;
+        }
+      } else if (rawMessage) {
+        errorMessage = rawMessage;
+      }
+      
       toast({
         title: "Letter Generation Failed",
-        description: error.message || "Could not generate dispute letter",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
+      console.log('[FRONTEND] Letter generation finished, resetting state');
       setGeneratingLetter(null);
     }
   };

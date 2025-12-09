@@ -25,6 +25,7 @@ export function runDisputableRules(report: CreditReport): IssueFlag[] {
   issues.push(...ruleHighBalanceUtilization(report));
   issues.push(...ruleRecentInquiries(report));
   issues.push(...ruleCatchAllNegativeStatus(report));
+  issues.push(...ruleUniversalAccountVerification(report));
   
   console.log(`🔎 [DISPUTABLE] Found ${issues.length} disputable items`);
   
@@ -435,5 +436,141 @@ function ruleCatchAllNegativeStatus(report: CreditReport): IssueFlag[] {
   }
   
   console.log(`🔎 [CATCH-ALL] Found ${issues.length} items via catch-all rule`);
+  return issues;
+}
+
+/**
+ * TARGETED: Flag accounts with specific issues that indicate FCRA violations
+ * These rules are more selective to avoid overcounting
+ */
+function ruleUniversalAccountVerification(report: CreditReport): IssueFlag[] {
+  const issues: IssueFlag[] = [];
+  
+  console.log('🔎 [TARGETED] Running targeted account verification...');
+  
+  for (const b of report.bureaus) {
+    // Flag tradelines with COMPLETELY missing account numbers (not just masked)
+    for (const tl of b.tradelines) {
+      // Only flag if account number is completely empty (truly missing, not just masked)
+      const accountNumber = tl.accountNumberMasked || '';
+      const isCompletelyMissing = accountNumber === '' || accountNumber === 'N/A' || accountNumber === 'NONE';
+      
+      if (isCompletelyMissing) {
+        issues.push(
+          createIssueFlag({
+            ruleId: 'DISP_010_MISSING_ACCOUNT_NUMBER',
+            family: 'DISPUTABLE',
+            category: 'ACCOUNT_IDENTIFICATION',
+            severity: 'HIGH',
+            statutes: ['FCRA_607b', 'FCRA_611'],
+            affectedEntityType: 'Tradeline',
+            affectedBureaus: [b.bureau],
+            affectedIds: [tl.internalId],
+            descriptionMachine:
+              `Account ${tl.creditorName} has no account number on file per FCRA 607. Request full verification of account ownership.`,
+            explanationKey: 'DISP_ACCOUNT_VERIFICATION',
+            details: {
+              bureau: b.bureau,
+              internalId: tl.internalId,
+              creditorName: tl.creditorName,
+              balance: tl.balance,
+              status: tl.status,
+              accountName: tl.creditorName,
+            },
+          })
+        );
+      }
+      
+      // Flag accounts with balance but no creditor name (data integrity issue)
+      if ((tl.balance ?? 0) > 0 && (!tl.creditorName || tl.creditorName === 'Unknown')) {
+        issues.push(
+          createIssueFlag({
+            ruleId: 'DISP_011_MISSING_CREDITOR_NAME',
+            family: 'DISPUTABLE',
+            category: 'DATA_INTEGRITY',
+            severity: 'HIGH',
+            statutes: ['FCRA_611', 'FCRA_623'],
+            affectedEntityType: 'Tradeline',
+            affectedBureaus: [b.bureau],
+            affectedIds: [tl.internalId],
+            descriptionMachine:
+              `Account with balance $${tl.balance} has missing or unknown creditor name. Request verification of account details.`,
+            explanationKey: 'DISP_MISSING_CREDITOR',
+            details: {
+              bureau: b.bureau,
+              internalId: tl.internalId,
+              balance: tl.balance,
+              status: tl.status,
+              accountName: 'Unknown Account',
+            },
+          })
+        );
+      }
+    }
+    
+    // Flag collections with specific documentation issues
+    for (const col of b.collections) {
+      // Only flag if collector explicitly uses same name as original creditor (indicates improper attribution)
+      if (col.originalCreditorName && col.collectorName && 
+          col.originalCreditorName.toLowerCase() === col.collectorName.toLowerCase()) {
+        issues.push(
+          createIssueFlag({
+            ruleId: 'DISP_012_COLLECTION_DUPLICATE_NAME',
+            family: 'DISPUTABLE',
+            category: 'COLLECTION_DOCUMENTATION',
+            severity: 'MEDIUM',
+            statutes: ['FDCPA_809', 'FCRA_611'],
+            affectedEntityType: 'Collection',
+            affectedBureaus: [b.bureau],
+            affectedIds: [col.internalId],
+            descriptionMachine:
+              `Collection from ${col.collectorName} lists same entity as original creditor. Request documentation proving chain of ownership.`,
+            explanationKey: 'DISP_COLLECTION_DOCS',
+            details: {
+              bureau: b.bureau,
+              internalId: col.internalId,
+              collectorName: col.collectorName,
+              originalCreditor: col.originalCreditorName,
+              balance: col.balance,
+              status: col.status,
+              accountName: col.collectorName || 'Collection Account',
+            },
+          })
+        );
+      }
+      
+      // Flag collections with balance inconsistency (reporting > original debt)
+      const balance = col.balance ?? 0;
+      // This is hypothetical - if we had original debt amount we could compare
+      // For now flag any collection over $10k as potentially worth verifying
+      if (balance > 10000) {
+        issues.push(
+          createIssueFlag({
+            ruleId: 'DISP_013_HIGH_BALANCE_COLLECTION',
+            family: 'DISPUTABLE',
+            category: 'COLLECTION_BALANCE',
+            severity: 'MEDIUM',
+            statutes: ['FDCPA_808', 'FCRA_611'],
+            affectedEntityType: 'Collection',
+            affectedBureaus: [b.bureau],
+            affectedIds: [col.internalId],
+            descriptionMachine:
+              `Collection account from ${col.collectorName} showing high balance of $${balance}. Request debt validation and calculation breakdown.`,
+            explanationKey: 'DISP_COLLECTION_BALANCE',
+            details: {
+              bureau: b.bureau,
+              internalId: col.internalId,
+              collectorName: col.collectorName,
+              balance: col.balance,
+              status: col.status,
+              accountName: col.collectorName || 'Collection Account',
+            },
+          })
+        );
+      }
+    }
+  }
+  
+  console.log(`🔎 [TARGETED] Found ${issues.length} items via targeted verification`);
   return issues;
 }
