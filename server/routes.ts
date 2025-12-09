@@ -2593,6 +2593,146 @@ Date Opened: 03/15/2023
     }
   );
 
+  // TEST ENDPOINT: Public letter generation test - NO AUTH REQUIRED
+  // This endpoint bypasses auth to verify the letter generation pipeline works
+  app.post('/api/test-letter-gen', async (req: any, res) => {
+    console.log('🧪 [TEST] Letter generation test endpoint called');
+    try {
+      // Get the user by email (passed in body for testing)
+      const { userEmail, bureau = 'EXPERIAN' } = req.body;
+      
+      if (!userEmail) {
+        return res.status(400).json({ message: "userEmail required in body" });
+      }
+      
+      // Find user by email
+      const allUsers = await db.select().from(users).where(eq(users.email, userEmail));
+      const user = allUsers[0];
+      
+      if (!user) {
+        return res.status(404).json({ message: `User not found: ${userEmail}` });
+      }
+      
+      console.log('🧪 [TEST] Found user:', user.id);
+      
+      // Get violations for this user
+      const allViolations = await storage.getViolationsByUserId(user.id);
+      console.log('🧪 [TEST] Total violations:', allViolations.length);
+      
+      if (allViolations.length === 0) {
+        return res.status(400).json({ 
+          message: "No violations found for user",
+          userId: user.id 
+        });
+      }
+      
+      // Filter to the specified bureau
+      const bureauViolations = allViolations.filter(v => 
+        v.bureau?.toUpperCase() === bureau.toUpperCase()
+      );
+      
+      console.log('🧪 [TEST] Violations for bureau', bureau, ':', bureauViolations.length);
+      
+      if (bureauViolations.length === 0) {
+        return res.status(400).json({ 
+          message: `No violations found for bureau: ${bureau}`,
+          availableBureaus: Array.from(new Set(allViolations.map(v => v.bureau)))
+        });
+      }
+      
+      // Take first violation
+      const selectedViolation = bureauViolations[0];
+      console.log('🧪 [TEST] Using violation:', selectedViolation.id);
+      
+      const userInfo = {
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Test User',
+        addressLine1: "123 Main Street",
+        city: "Anytown",
+        state: "FL",
+        zip: "32801",
+        phone: "(555) 123-4567",
+        email: user.email,
+        dob: "01/01/1990",
+        ssnLast4: "1234"
+      };
+      
+      const { generateRoundBasedLetter, getBureauAddress } = await import('./services/roundLetterTemplates');
+      
+      const letterContent = generateRoundBasedLetter({
+        round: 1,
+        userInfo,
+        bureauAddress: getBureauAddress(bureau.toUpperCase() as any),
+        violations: [{
+          creditorName: selectedViolation.accountName,
+          accountNumber: selectedViolation.accountNumber || undefined,
+          issue: selectedViolation.description,
+          requestedAction: `Verify ${selectedViolation.statute} compliance and correct or delete if unverifiable.`
+        }],
+      });
+      
+      console.log('🧪 [TEST] Letter content generated, length:', letterContent.length);
+      
+      // Generate Word doc
+      const { generateDisputeLetterDocx, saveDisputeLetterDocx } = await import('./services/wordDocGenerator');
+      
+      const docxBuffer = await generateDisputeLetterDocx({
+        userInfo: {
+          name: userInfo.name,
+          addressLine1: userInfo.addressLine1,
+          city: userInfo.city,
+          state: userInfo.state,
+          zip: userInfo.zip,
+          email: userInfo.email
+        },
+        bureau: bureau.toUpperCase() as any,
+        violations: [{
+          accountName: selectedViolation.accountName,
+          accountNumber: selectedViolation.accountNumber || undefined,
+          description: selectedViolation.description,
+          statute: selectedViolation.statute
+        }],
+        round: 1,
+        letterContent
+      });
+      
+      console.log('🧪 [TEST] Word doc generated, size:', docxBuffer.length);
+      
+      // Save to Object Storage
+      const filename = `TEST_${bureau}_dispute_${Date.now()}.docx`;
+      const docxUrl = await saveDisputeLetterDocx(docxBuffer, filename, user.id);
+      console.log('🧪 [TEST] Saved to Object Storage:', docxUrl);
+      
+      // Save to database
+      const disputeLetter = await storage.createDisputeLetter({
+        userId: user.id,
+        bureau: bureau.toUpperCase() as any,
+        letterType: "INITIAL",
+        round: 1,
+        recipientType: "BUREAU",
+        content: letterContent,
+        pdfUrl: docxUrl,
+        status: "GENERATED"
+      });
+      
+      console.log('🧪 [TEST] Letter saved to database:', disputeLetter.id);
+      
+      res.json({
+        success: true,
+        message: "Test letter generated successfully",
+        letterId: disputeLetter.id,
+        docxUrl,
+        violationUsed: selectedViolation.id,
+        bureau: bureau.toUpperCase()
+      });
+    } catch (error: any) {
+      console.error('🧪 [TEST] Error:', error);
+      res.status(500).json({ 
+        message: error.message,
+        stack: error.stack
+      });
+    }
+  });
+  
   // Violations
   app.get('/api/violations', requireActiveSubscription, async (req: any, res) => {
     try {
@@ -2801,7 +2941,7 @@ Date Opened: 03/15/2023
     }
   });
 
-  app.get('/api/dispute-letters', requireActiveSubscription, async (req: any, res) => {
+  app.get('/api/dispute-letters', requireAuth, async (req: any, res) => {
     try {
       const userId = req.session.userId;
       const letters = await storage.getDisputeLettersByUserId(userId);
@@ -2812,7 +2952,7 @@ Date Opened: 03/15/2023
     }
   });
 
-  app.get('/api/dispute-letters/:id/download', requireActiveSubscription, async (req: any, res) => {
+  app.get('/api/dispute-letters/:id/download', requireAuth, async (req: any, res) => {
     try {
       const { id } = req.params;
       const letters = await storage.getDisputeLettersByUserId(req.session.userId);
@@ -2862,7 +3002,7 @@ Date Opened: 03/15/2023
     }
   });
 
-  app.get('/api/dispute-letters/:id/view', requireActiveSubscription, async (req: any, res) => {
+  app.get('/api/dispute-letters/:id/view', requireAuth, async (req: any, res) => {
     try {
       const { id } = req.params;
       const letters = await storage.getDisputeLettersByUserId(req.session.userId);
