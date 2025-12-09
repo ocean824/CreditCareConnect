@@ -150,23 +150,81 @@ export default function Letters() {
     );
   }
 
-  const handleDownloadLetter = (letterId: string) => {
-    // In a real implementation, this would trigger the download
-    window.open(`/api/dispute-letters/${letterId}/download`, '_blank');
+  const handleDownloadLetter = async (letterId: string) => {
+    try {
+      toast({
+        title: "Downloading...",
+        description: "Preparing your Word document",
+      });
+      
+      // Fetch with credentials to pass session cookie
+      const response = await fetch(`/api/dispute-letters/${letterId}/download`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Download failed: ${response.status}`);
+      }
+      
+      // Get the filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'Dispute_Letter.docx';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?([^";\n]+)"?/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+      
+      // Create blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      toast({
+        title: "Download Complete",
+        description: "Your dispute letter has been downloaded",
+      });
+    } catch (error: any) {
+      console.error('Download error:', error);
+      toast({
+        title: "Download Failed",
+        description: error.message || "Could not download the letter",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handlePreviewLetter = (letterId: string) => {
+  const handlePreviewLetter = async (letterId: string) => {
     const letter = disputeLetters?.find(l => l.id === letterId);
     if (letter) {
+      // Show the letter content directly in the preview section
+      setSelectedLetter(letterId);
+      
+      // Also open the print preview modal
       setPreviewDocument({
         id: letter.id,
-        filename: `${letter.bureau}_Dispute_Letter.pdf`,
+        filename: `${letter.bureau}_Dispute_Letter.docx`,
         recipient: `${letter.bureau} Credit Bureau`,
         sender: "Personal Credit Pros",
         pages: 1,
         content: letter.content
       });
       setShowPrintPreview(true);
+    } else {
+      toast({
+        title: "Preview Failed",
+        description: "Could not find letter content",
+        variant: "destructive",
+      });
     }
   };
 
