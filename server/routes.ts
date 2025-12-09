@@ -2605,8 +2605,8 @@ Date Opened: 03/15/2023
     }
   });
 
-  // Dispute Letters
-  app.post('/api/dispute-letters/generate', requireActiveSubscription, async (req: any, res) => {
+  // Dispute Letters - Use requireAuth instead of requireActiveSubscription for simpler auth check
+  app.post('/api/dispute-letters/generate', requireAuth, async (req: any, res) => {
     console.log('📨 [LETTER] Generate letter request received');
     // Only log non-sensitive metadata (not full request body for PII compliance)
     console.log('📨 [LETTER] Request params:', { 
