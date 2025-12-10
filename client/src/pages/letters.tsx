@@ -150,15 +150,18 @@ export default function Letters() {
     );
   }
 
+  // DEBUG: Log data state
+  console.log('📋 LETTERS PAGE DEBUG:', {
+    userLoaded: !!user,
+    letterCount: disputeLetters?.length ?? 0,
+    violationCount: violations?.length ?? 0,
+    disputeLetters: disputeLetters
+  });
+
   const handleDownloadLetter = (letterId: string) => {
-    console.log('🔷 Download handler called with letter ID:', letterId);
-    console.log('🔷 All letters:', disputeLetters);
-    
     const letter = disputeLetters?.find(l => l.id === letterId);
-    console.log('🔷 Found letter:', letter);
     
     if (!letter || !letter.pdfUrl) {
-      console.log('🔷 ERROR: Letter or pdfUrl missing');
       toast({
         title: "Error",
         description: "Letter or document not found",
@@ -167,14 +170,10 @@ export default function Letters() {
       return;
     }
     
-    console.log('🔷 Starting download with URL:', `/api/dispute-letters/${letterId}/download`);
-    
-    // Try direct fetch first to see actual error
     fetch(`/api/dispute-letters/${letterId}/download`, {
       credentials: 'include'
     })
       .then(response => {
-        console.log('🔷 Response received:', response.status, response.statusText);
         if (!response.ok) {
           return response.text().then(text => {
             throw new Error(`${response.status}: ${text}`);
@@ -183,14 +182,12 @@ export default function Letters() {
         return response.blob();
       })
       .then(blob => {
-        console.log('🔷 Blob received, size:', blob.size, 'type:', blob.type);
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
         link.download = `${letter.bureau}_Dispute_Letter.docx`;
         link.style.display = 'none';
         document.body.appendChild(link);
-        console.log('🔷 Clicking link to trigger download');
         link.click();
         setTimeout(() => {
           document.body.removeChild(link);
@@ -202,7 +199,6 @@ export default function Letters() {
         });
       })
       .catch(err => {
-        console.error('🔷 Download error:', err);
         toast({
           title: "Download Failed",
           description: err.message,
@@ -295,6 +291,26 @@ export default function Letters() {
           <p className="text-muted-foreground">AI-generated, legally compliant dispute letters</p>
         </div>
 
+        {/* DEBUG PANEL - REMOVE AFTER TESTING */}
+        <Card className="mb-4 bg-yellow-50 border-yellow-200" data-testid="debug-panel">
+          <CardContent className="pt-6 text-sm text-yellow-900">
+            <div><strong>DEBUG INFO:</strong></div>
+            <div>User loaded: {user ? 'YES' : 'NO'}</div>
+            <div>Letters loaded: {disputeLetters ? 'YES' : 'NO'}</div>
+            <div>Letter count: {disputeLetters?.length ?? 0}</div>
+            <div>Violations: {violations?.length ?? 0}</div>
+            {disputeLetters && disputeLetters.length > 0 && (
+              <div className="mt-2">
+                <strong>First letter:</strong>
+                <div>ID: {disputeLetters[0].id}</div>
+                <div>Bureau: {disputeLetters[0].bureau}</div>
+                <div>Has pdfUrl: {!!disputeLetters[0].pdfUrl}</div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        {/* END DEBUG PANEL */}
+
         {/* Letter Generation Status */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           {disputeLetters && disputeLetters.length > 0 ? (
@@ -318,11 +334,21 @@ export default function Letters() {
                 <CardContent className="space-y-2">
                   <button 
                     type="button"
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 flex items-center justify-center"
-                    onClick={() => {
-                      window.alert('Download button clicked! Letter ID: ' + letter.id);
-                      handleDownloadLetter(letter.id);
+                    style={{
+                      width: '100%',
+                      backgroundColor: '#2563eb',
+                      color: 'white',
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                    onClick={() => handleDownloadLetter(letter.id)}
                     data-testid={`button-download-${letter.bureau.toLowerCase()}`}
                   >
                     <Download className="w-4 h-4 mr-2" />
@@ -330,9 +356,22 @@ export default function Letters() {
                   </button>
                   <button 
                     type="button"
-                    className="w-full border border-gray-300 py-2 px-4 rounded hover:bg-gray-100 flex items-center justify-center mt-2"
+                    style={{
+                      width: '100%',
+                      backgroundColor: 'white',
+                      color: '#333',
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      border: '1px solid #d1d5db',
+                      cursor: 'pointer',
+                      marginTop: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                     onClick={() => {
-                      window.alert('Preview button clicked! Letter ID: ' + letter.id);
                       setSelectedLetter(letter.id);
                       handlePreviewLetter(letter.id);
                     }}
