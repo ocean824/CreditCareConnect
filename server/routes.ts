@@ -2955,47 +2955,75 @@ Date Opened: 03/15/2023
   app.get('/api/dispute-letters/:id/download', requireAuth, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const letters = await storage.getDisputeLettersByUserId(req.session.userId);
+      const userId = req.session.userId;
+      const letters = await storage.getDisputeLettersByUserId(userId);
       const letter = letters.find(l => l.id === id);
 
       if (!letter) {
         return res.status(404).json({ message: "Letter not found" });
       }
 
-      if (!letter.pdfUrl) {
-        return res.status(404).json({ message: "Document not available for this letter" });
-      }
-
-      const isDocx = letter.pdfUrl.endsWith('.docx');
-      const filename = `${letter.bureau}_Dispute_Letter_Round${letter.round}.${isDocx ? 'docx' : 'pdf'}`;
+      const filename = `${letter.bureau}_Dispute_Letter_Round${letter.round}.docx`;
       
-      // Check if the letter is stored in Object Storage (URLs start with /objects/)
-      if (letter.pdfUrl.startsWith('/objects/')) {
-        const objectStorage = new ObjectStorageService();
-        const buffer = await objectStorage.downloadToBuffer(letter.pdfUrl);
-        
-        if (isDocx) {
-          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-        } else {
-          res.setHeader('Content-Type', 'application/pdf');
+      // Try to get existing document from Object Storage
+      let buffer: Buffer | null = null;
+      
+      if (letter.pdfUrl && letter.pdfUrl.startsWith('/objects/')) {
+        try {
+          const objectStorage = new ObjectStorageService();
+          buffer = await objectStorage.downloadToBuffer(letter.pdfUrl);
+        } catch (downloadError) {
+          console.log('📥 Document not found in storage, will generate on-the-fly');
+          buffer = null;
         }
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.send(buffer);
-      } else {
-        // Legacy: local file system
-        const filePath = path.join(process.cwd(), letter.pdfUrl);
-        if (!fs.existsSync(filePath)) {
-          return res.status(404).json({ message: "Document file not found" });
-        }
-
-        if (isDocx) {
-          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-        } else {
-          res.setHeader('Content-Type', 'application/pdf');
-        }
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.sendFile(filePath);
       }
+      
+      // If no existing document, generate Word doc on-the-fly from letter content
+      if (!buffer && letter.content) {
+        console.log('📥 Generating Word doc on-the-fly for letter:', id);
+        
+        const user = await storage.getUser(userId);
+        const { generateDisputeLetterDocx, saveDisputeLetterDocx } = await import('./services/wordDocGenerator');
+        
+        const userInfo = {
+          name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'Client',
+          addressLine1: "123 Main Street",
+          city: "Anytown",
+          state: "FL",
+          zip: "32801",
+          email: user?.email || ''
+        };
+        
+        buffer = await generateDisputeLetterDocx({
+          userInfo,
+          bureau: letter.bureau as 'EQUIFAX' | 'TRANSUNION' | 'EXPERIAN',
+          violations: [],
+          round: (letter.round || 1) as 1 | 2 | 3,
+          letterContent: letter.content
+        });
+        
+        // Save for future use
+        try {
+          const docxUrl = await saveDisputeLetterDocx(buffer, filename, userId);
+          await storage.updateDisputeLetterStatus(letter.id, letter.status, undefined);
+          // Update the pdfUrl in database
+          const { db } = await import('./db');
+          const { disputeLetters } = await import('@shared/schema');
+          const { eq } = await import('drizzle-orm');
+          await db.update(disputeLetters).set({ pdfUrl: docxUrl }).where(eq(disputeLetters.id, letter.id));
+          console.log('📥 Saved generated doc to:', docxUrl);
+        } catch (saveError) {
+          console.error('📥 Failed to save doc, but will still return it:', saveError);
+        }
+      }
+      
+      if (!buffer) {
+        return res.status(404).json({ message: "No document or content available for this letter" });
+      }
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buffer);
     } catch (error) {
       console.error("Error downloading dispute letter:", error);
       res.status(500).json({ message: "Failed to download dispute letter" });

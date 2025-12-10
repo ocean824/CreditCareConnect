@@ -151,60 +151,61 @@ export default function Letters() {
   }
 
   const handleDownloadLetter = async (letterId: string) => {
-    window.alert(`DOWNLOAD CLICKED - Letter ID: ${letterId}`);
-    
     const letter = disputeLetters?.find(l => l.id === letterId);
-    window.alert(`Letter found: ${!!letter}, Has PDF: ${!!letter?.pdfUrl}`);
     
-    if (!letter || !letter.pdfUrl) {
-      window.alert('ERROR: Letter or pdfUrl missing');
+    if (!letter) {
+      toast({ title: "Error", description: "Letter not found", variant: "destructive" });
       return;
     }
     
+    toast({ title: "Downloading...", description: "Generating your Word document" });
+    
     try {
-      window.alert(`Fetching: /api/dispute-letters/${letterId}/download`);
-      const response = await fetch(`/api/dispute-letters/${letterId}/download`, { credentials: 'include' });
-      window.alert(`Response status: ${response.status}`);
+      const response = await fetch(`/api/dispute-letters/${letterId}/download`, { 
+        credentials: 'include' 
+      });
       
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Download failed: ${response.status} - ${errorText}`);
+        const errorData = await response.json().catch(() => ({ message: 'Download failed' }));
+        throw new Error(errorData.message || 'Download failed');
       }
       
       const blob = await response.blob();
-      window.alert(`Blob received: ${blob.size} bytes`);
-      
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${letter.bureau}_Letter.docx`;
+      a.download = `${letter.bureau}_Dispute_Letter.docx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
       
-      window.alert('Download completed successfully!');
+      toast({ title: "Success", description: "Document downloaded successfully" });
     } catch (error: any) {
-      window.alert(`Download ERROR: ${error.message}`);
+      toast({ title: "Download Failed", description: error.message, variant: "destructive" });
     }
   };
 
   const handlePreviewLetter = (letterId: string) => {
-    window.alert(`PREVIEW CLICKED - Letter ID: ${letterId}`);
-    
     const letter = disputeLetters?.find(l => l.id === letterId);
-    window.alert(`Letter found: ${!!letter}`);
     
     if (!letter) {
-      window.alert('ERROR: Letter not found');
+      toast({ title: "Error", description: "Letter not found", variant: "destructive" });
       return;
     }
     
     setSelectedLetter(letterId);
-    setPreviewDocument({ id: letter.id, content: letter.content });
+    setPreviewDocument({ 
+      id: letter.id, 
+      filename: `${letter.bureau}_Dispute_Letter.docx`,
+      recipient: `${letter.bureau} Credit Bureau`,
+      sender: "Personal Credit Pros",
+      pages: 1,
+      content: letter.content 
+    });
     setShowPrintPreview(true);
     
-    window.alert('Preview modal should now be visible');
+    toast({ title: "Preview", description: "Letter preview opened" });
   };
 
   const getStatusIcon = (status: string) => {
@@ -280,54 +281,23 @@ export default function Letters() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  <button 
-                    type="button"
-                    style={{
-                      width: '100%',
-                      backgroundColor: '#2563eb',
-                      color: 'white',
-                      padding: '8px 16px',
-                      borderRadius: '4px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                  <Button 
+                    className="w-full"
                     onClick={() => handleDownloadLetter(letter.id)}
                     data-testid={`button-download-${letter.bureau.toLowerCase()}`}
                   >
                     <Download className="w-4 h-4 mr-2" />
                     Download Word Doc
-                  </button>
-                  <button 
-                    type="button"
-                    style={{
-                      width: '100%',
-                      backgroundColor: 'white',
-                      color: '#333',
-                      padding: '8px 16px',
-                      borderRadius: '4px',
-                      border: '1px solid #d1d5db',
-                      cursor: 'pointer',
-                      marginTop: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
-                    onClick={() => {
-                      setSelectedLetter(letter.id);
-                      handlePreviewLetter(letter.id);
-                    }}
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => handlePreviewLetter(letter.id)}
                     data-testid={`button-preview-${letter.bureau.toLowerCase()}`}
                   >
                     <Eye className="w-4 h-4 mr-2" />
-                    View Letter
-                  </button>
+                    Preview Letter
+                  </Button>
                   {letter.status === "GENERATED" && user?.plan === "DONE_FOR_YOU" && (
                     <Button 
                       variant="secondary" 
