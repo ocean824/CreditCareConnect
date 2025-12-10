@@ -151,45 +151,96 @@ export default function Letters() {
   }
 
   const handleDownloadLetter = (letterId: string) => {
+    console.log('🔷 Download handler called with letter ID:', letterId);
+    console.log('🔷 All letters:', disputeLetters);
+    
     const letter = disputeLetters?.find(l => l.id === letterId);
+    console.log('🔷 Found letter:', letter);
+    
     if (!letter || !letter.pdfUrl) {
-      window.alert('Letter or document URL not found');
+      console.log('🔷 ERROR: Letter or pdfUrl missing');
+      toast({
+        title: "Error",
+        description: "Letter or document not found",
+        variant: "destructive"
+      });
       return;
     }
     
-    // Direct download via API endpoint - let the browser handle it
-    const downloadUrl = `/api/dispute-letters/${letterId}/download`;
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `${letter.bureau}_Dispute_Letter.docx`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    console.log('🔷 Starting download with URL:', `/api/dispute-letters/${letterId}/download`);
+    
+    // Try direct fetch first to see actual error
+    fetch(`/api/dispute-letters/${letterId}/download`, {
+      credentials: 'include'
+    })
+      .then(response => {
+        console.log('🔷 Response received:', response.status, response.statusText);
+        if (!response.ok) {
+          return response.text().then(text => {
+            throw new Error(`${response.status}: ${text}`);
+          });
+        }
+        return response.blob();
+      })
+      .then(blob => {
+        console.log('🔷 Blob received, size:', blob.size, 'type:', blob.type);
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${letter.bureau}_Dispute_Letter.docx`;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        console.log('🔷 Clicking link to trigger download');
+        link.click();
+        setTimeout(() => {
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        }, 100);
+        toast({
+          title: "Success",
+          description: "Document downloaded"
+        });
+      })
+      .catch(err => {
+        console.error('🔷 Download error:', err);
+        toast({
+          title: "Download Failed",
+          description: err.message,
+          variant: "destructive"
+        });
+      });
   };
 
   const handlePreviewLetter = (letterId: string) => {
-    // Debug alert to confirm button was clicked
-    window.alert(`Preview clicked for letter: ${letterId}`);
-    
+    console.log('👁️ Preview handler called with letter ID:', letterId);
     const letter = disputeLetters?.find(l => l.id === letterId);
-    if (letter) {
-      // Show the letter content directly in the preview section
-      setSelectedLetter(letterId);
-      
-      // Also open the print preview modal
-      setPreviewDocument({
-        id: letter.id,
-        filename: `${letter.bureau}_Dispute_Letter.docx`,
-        recipient: `${letter.bureau} Credit Bureau`,
-        sender: "Personal Credit Pros",
-        pages: 1,
-        content: letter.content
+    
+    if (!letter) {
+      console.error('👁️ ERROR: Letter not found');
+      toast({
+        title: "Error",
+        description: "Letter not found",
+        variant: "destructive"
       });
-      setShowPrintPreview(true);
-      window.alert('Preview modal should be open now');
-    } else {
-      window.alert('Could not find letter in data');
+      return;
     }
+    
+    console.log('👁️ Found letter, showing preview');
+    setSelectedLetter(letterId);
+    setPreviewDocument({
+      id: letter.id,
+      filename: `${letter.bureau}_Dispute_Letter.docx`,
+      recipient: `${letter.bureau} Credit Bureau`,
+      sender: "Personal Credit Pros",
+      pages: 1,
+      content: letter.content
+    });
+    setShowPrintPreview(true);
+    
+    toast({
+      title: "Preview Opened",
+      description: "Letter preview is displayed below"
+    });
   };
 
   const getStatusIcon = (status: string) => {
