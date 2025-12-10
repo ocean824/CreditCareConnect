@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Navigation from "@/components/Navigation";
@@ -40,6 +40,31 @@ export default function Letters() {
     queryKey: ["/api/violations"],
     enabled: !!user,
   });
+
+  // Auto-open preview if query parameter is present
+  useEffect(() => {
+    if (disputeLetters && disputeLetters.length > 0) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const previewId = urlParams.get('preview');
+      if (previewId) {
+        const letter = disputeLetters.find(l => l.id === previewId);
+        if (letter) {
+          setSelectedLetter(letter.id);
+          setPreviewDocument({ 
+            id: letter.id, 
+            filename: `${letter.bureau}_Dispute_Letter.docx`,
+            recipient: `${letter.bureau} Credit Bureau`,
+            sender: "Personal Credit Pros",
+            pages: 1,
+            content: letter.content 
+          });
+          setShowPrintPreview(true);
+          // Clear the query param to prevent re-opening on page refresh
+          window.history.replaceState({}, '', '/letters');
+        }
+      }
+    }
+  }, [disputeLetters]);
 
   const [generatingBureau, setGeneratingBureau] = useState<string | null>(null);
 

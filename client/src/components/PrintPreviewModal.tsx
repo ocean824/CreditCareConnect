@@ -33,11 +33,52 @@ export function PrintPreviewModal({
     window.print();
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
+    if (!document?.id) {
+      toast({
+        title: "Download failed",
+        description: "No document available to download.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     toast({
-      title: "Download started",
-      description: "Your PDF is being prepared for download.",
+      title: "Downloading...",
+      description: "Generating your Word document.",
     });
+    
+    try {
+      const response = await fetch(`/api/dispute-letters/${document.id}/download`, { 
+        credentials: 'include' 
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Download failed' }));
+        throw new Error(errorData.message || 'Download failed');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = window.document.createElement('a');
+      a.href = url;
+      a.download = document.filename || 'Dispute_Letter.docx';
+      window.document.body.appendChild(a);
+      a.click();
+      window.document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      toast({
+        title: "Success",
+        description: "Document downloaded successfully.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Download failed",
+        description: error.message || "Could not download document.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleSendToClick2Mail = () => {
@@ -169,10 +210,10 @@ export function PrintPreviewModal({
                 variant="outline"
                 className="w-full"
                 size="lg"
-                data-testid="download-pdf"
+                data-testid="download-word-doc"
               >
                 <Download className="h-4 w-4 mr-2" />
-                Download PDF
+                Download Word Doc
               </Button>
             </div>
 

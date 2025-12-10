@@ -620,13 +620,40 @@ export default function Dashboard() {
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                      <Button className="w-full" data-testid={`button-download-${letter.bureau.toLowerCase()}`}>
+                      <Button 
+                        className="w-full" 
+                        data-testid={`button-download-${letter.bureau.toLowerCase()}`}
+                        onClick={async () => {
+                          toast({ title: "Downloading...", description: "Generating your Word document" });
+                          try {
+                            const response = await fetch(`/api/dispute-letters/${letter.id}/download`, { credentials: 'include' });
+                            if (!response.ok) throw new Error('Download failed');
+                            const blob = await response.blob();
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `${letter.bureau}_Dispute_Letter.docx`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            window.URL.revokeObjectURL(url);
+                            toast({ title: "Success", description: "Document downloaded" });
+                          } catch (error: any) {
+                            toast({ title: "Download Failed", description: error.message, variant: "destructive" });
+                          }
+                        }}
+                      >
                         <Download className="w-4 h-4 mr-2" />
-                        Download PDF
+                        Download Word Doc
                       </Button>
-                      <Button variant="outline" className="w-full" data-testid={`button-preview-${letter.bureau.toLowerCase()}`}>
+                      <Button 
+                        variant="outline" 
+                        className="w-full" 
+                        data-testid={`button-preview-${letter.bureau.toLowerCase()}`}
+                        onClick={() => window.location.href = `/letters?preview=${letter.id}`}
+                      >
                         <Eye className="w-4 h-4 mr-2" />
-                        Preview Letter
+                        View Letter
                       </Button>
                     </CardContent>
                   </Card>
