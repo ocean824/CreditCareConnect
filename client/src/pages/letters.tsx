@@ -151,16 +151,29 @@ export default function Letters() {
   }
 
   const handleDownloadLetter = async (letterId: string) => {
+    window.alert(`DOWNLOAD CLICKED - Letter ID: ${letterId}`);
+    
     const letter = disputeLetters?.find(l => l.id === letterId);
+    window.alert(`Letter found: ${!!letter}, Has PDF: ${!!letter?.pdfUrl}`);
+    
     if (!letter || !letter.pdfUrl) {
-      toast({ title: "Error", description: "Letter not found" });
+      window.alert('ERROR: Letter or pdfUrl missing');
       return;
     }
     
     try {
+      window.alert(`Fetching: /api/dispute-letters/${letterId}/download`);
       const response = await fetch(`/api/dispute-letters/${letterId}/download`, { credentials: 'include' });
-      if (!response.ok) throw new Error('Download failed');
+      window.alert(`Response status: ${response.status}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Download failed: ${response.status} - ${errorText}`);
+      }
+      
       const blob = await response.blob();
+      window.alert(`Blob received: ${blob.size} bytes`);
+      
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -169,22 +182,29 @@ export default function Letters() {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast({ title: "Downloaded", description: "Letter download started" });
+      
+      window.alert('Download completed successfully!');
     } catch (error: any) {
-      toast({ title: "Error", description: error.message });
+      window.alert(`Download ERROR: ${error.message}`);
     }
   };
 
   const handlePreviewLetter = (letterId: string) => {
+    window.alert(`PREVIEW CLICKED - Letter ID: ${letterId}`);
+    
     const letter = disputeLetters?.find(l => l.id === letterId);
+    window.alert(`Letter found: ${!!letter}`);
+    
     if (!letter) {
-      toast({ title: "Error", description: "Letter not found" });
+      window.alert('ERROR: Letter not found');
       return;
     }
+    
     setSelectedLetter(letterId);
     setPreviewDocument({ id: letter.id, content: letter.content });
     setShowPrintPreview(true);
-    toast({ title: "Preview", description: "Letter preview opened" });
+    
+    window.alert('Preview modal should now be visible');
   };
 
   const getStatusIcon = (status: string) => {
