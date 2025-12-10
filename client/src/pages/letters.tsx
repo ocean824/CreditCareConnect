@@ -150,93 +150,41 @@ export default function Letters() {
     );
   }
 
-  // DEBUG: Log data state
-  console.log('📋 LETTERS PAGE DEBUG:', {
-    userLoaded: !!user,
-    letterCount: disputeLetters?.length ?? 0,
-    violationCount: violations?.length ?? 0,
-    disputeLetters: disputeLetters
-  });
-
-  const handleDownloadLetter = (letterId: string) => {
+  const handleDownloadLetter = async (letterId: string) => {
     const letter = disputeLetters?.find(l => l.id === letterId);
-    
     if (!letter || !letter.pdfUrl) {
-      toast({
-        title: "Error",
-        description: "Letter or document not found",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "Letter not found" });
       return;
     }
     
-    fetch(`/api/dispute-letters/${letterId}/download`, {
-      credentials: 'include'
-    })
-      .then(response => {
-        if (!response.ok) {
-          return response.text().then(text => {
-            throw new Error(`${response.status}: ${text}`);
-          });
-        }
-        return response.blob();
-      })
-      .then(blob => {
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${letter.bureau}_Dispute_Letter.docx`;
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        setTimeout(() => {
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(url);
-        }, 100);
-        toast({
-          title: "Success",
-          description: "Document downloaded"
-        });
-      })
-      .catch(err => {
-        toast({
-          title: "Download Failed",
-          description: err.message,
-          variant: "destructive"
-        });
-      });
+    try {
+      const response = await fetch(`/api/dispute-letters/${letterId}/download`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${letter.bureau}_Letter.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast({ title: "Downloaded", description: "Letter download started" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message });
+    }
   };
 
   const handlePreviewLetter = (letterId: string) => {
-    console.log('👁️ Preview handler called with letter ID:', letterId);
     const letter = disputeLetters?.find(l => l.id === letterId);
-    
     if (!letter) {
-      console.error('👁️ ERROR: Letter not found');
-      toast({
-        title: "Error",
-        description: "Letter not found",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "Letter not found" });
       return;
     }
-    
-    console.log('👁️ Found letter, showing preview');
     setSelectedLetter(letterId);
-    setPreviewDocument({
-      id: letter.id,
-      filename: `${letter.bureau}_Dispute_Letter.docx`,
-      recipient: `${letter.bureau} Credit Bureau`,
-      sender: "Personal Credit Pros",
-      pages: 1,
-      content: letter.content
-    });
+    setPreviewDocument({ id: letter.id, content: letter.content });
     setShowPrintPreview(true);
-    
-    toast({
-      title: "Preview Opened",
-      description: "Letter preview is displayed below"
-    });
+    toast({ title: "Preview", description: "Letter preview opened" });
   };
 
   const getStatusIcon = (status: string) => {
@@ -290,26 +238,6 @@ export default function Letters() {
           <h2 className="text-2xl font-bold mb-2" data-testid="text-letters-title">Dispute Letters</h2>
           <p className="text-muted-foreground">AI-generated, legally compliant dispute letters</p>
         </div>
-
-        {/* DEBUG PANEL - REMOVE AFTER TESTING */}
-        <Card className="mb-4 bg-yellow-50 border-yellow-200" data-testid="debug-panel">
-          <CardContent className="pt-6 text-sm text-yellow-900">
-            <div><strong>DEBUG INFO:</strong></div>
-            <div>User loaded: {user ? 'YES' : 'NO'}</div>
-            <div>Letters loaded: {disputeLetters ? 'YES' : 'NO'}</div>
-            <div>Letter count: {disputeLetters?.length ?? 0}</div>
-            <div>Violations: {violations?.length ?? 0}</div>
-            {disputeLetters && disputeLetters.length > 0 && (
-              <div className="mt-2">
-                <strong>First letter:</strong>
-                <div>ID: {disputeLetters[0].id}</div>
-                <div>Bureau: {disputeLetters[0].bureau}</div>
-                <div>Has pdfUrl: {!!disputeLetters[0].pdfUrl}</div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        {/* END DEBUG PANEL */}
 
         {/* Letter Generation Status */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
