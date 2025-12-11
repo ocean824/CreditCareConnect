@@ -26,6 +26,7 @@ import AdminCase from "@/pages/admin/case";
 import AdminLogin from "@/pages/admin-login";
 import AdminDashboard from "@/pages/admin-dashboard";
 import AdminSystemDashboard from "@/pages/admin-system-dashboard";
+import About from "@/pages/about";
 
 function Router() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -44,6 +45,8 @@ function Router() {
     <Switch>
       <Route path="/login" component={UserLogin} />
       <Route path="/register" component={UserRegister} />
+      <Route path="/about" component={About} />
+      <Route path="/about-us" component={About} />
       <Route path="/admin/login" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/system" component={AdminSystemDashboard} />
