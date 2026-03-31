@@ -1344,7 +1344,6 @@ Date Opened: 03/15/2023
           });
         }
           
-        console.log(`✅ Advanced analysis completed for report ${creditReport.id}:`);
         console.log(`   📊 ${analysisResult.issues.length} issues detected`);
         console.log(`   🤖 ${analysisResult.aiExplanations.length} AI explanations generated`);
         console.log(`   💾 Saved to analysis run ${analysisRun.id}`);
@@ -2209,8 +2208,6 @@ Date Opened: 03/15/2023
             status: "IDENTIFIED"
           });
         }
-        
-        console.log(`✅ Force re-analysis completed for ${creditReport.id}: ${expandedViolations.length} violations found`);
         
         res.json({ 
           success: true,
