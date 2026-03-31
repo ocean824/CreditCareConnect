@@ -252,7 +252,6 @@ async function parseWithRetry(
   if (!openai) {
     console.error(`❌ OpenAI client not initialized`);
     console.error(`   AI_INTEGRATIONS_OPENAI_BASE_URL: ${process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ? 'set' : 'NOT SET'}`);
-    console.error(`   OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? 'set' : 'NOT SET'}`);
     throw new Error("OpenAI not configured. Please contact support.");
   }
   

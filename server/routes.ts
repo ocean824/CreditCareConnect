@@ -1363,7 +1363,6 @@ Date Opened: 03/15/2023
       }
 
       // Only send success response if analysis actually completed
-      console.log(`✅ Credit report upload and analysis completed successfully for report ${creditReport.id}`);
       res.json(creditReport);
     } catch (error: any) {
       console.error("❌ Error uploading credit report:", error);
@@ -1854,7 +1853,6 @@ Date Opened: 03/15/2023
             });
           }
           
-          console.log(`✅ Reprocessing completed for ${creditReport.id}`);
         } catch (error) {
           console.error("❌ Error reprocessing credit report:", error);
           if (analysisRun) {
