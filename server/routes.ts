@@ -3413,6 +3413,27 @@ Date Opened: 03/15/2023
   // Mount admin routes
   app.use('/api/admin', adminRouter);
 
+  // Architecture doc download (admin only)
+  // Serves pre-built file by default; pass ?refresh=1 to regenerate on demand
+  app.get('/api/download/architecture-doc', adminOnly, async (req, res) => {
+    try {
+      const docPath = path.join(process.cwd(), 'public', 'CreditRepairApp_Architecture_PRD.docx');
+      fs.mkdirSync(path.dirname(docPath), { recursive: true });
+      const forceRefresh = req.query.refresh === '1';
+      const fileExists = fs.existsSync(docPath);
+      if (forceRefresh || !fileExists) {
+        const { generateArchitectureDoc } = await import('../scripts/generateArchitectureDoc');
+        await generateArchitectureDoc(docPath);
+      }
+      res.setHeader('Content-Disposition', 'attachment; filename="CreditRepairApp_Architecture_PRD.docx"');
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      fs.createReadStream(docPath).pipe(res);
+    } catch (err: any) {
+      console.error('Error generating architecture doc:', err);
+      res.status(500).json({ error: 'Failed to generate document: ' + err.message });
+    }
+  });
+
   // Health check endpoint
   app.get('/api/health', (req, res) => {
     res.json({ 

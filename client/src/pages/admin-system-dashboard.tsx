@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Users, FileText, Mail, AlertCircle, CheckCircle, Clock } from "lucide-react";
+import { ArrowLeft, Users, FileText, Mail, AlertCircle, CheckCircle, Clock, Download } from "lucide-react";
 
 export default function AdminSystemDashboard() {
   const [, setLocation] = useLocation();
@@ -198,6 +198,17 @@ export default function AdminSystemDashboard() {
                 >
                   <FileText className="h-4 w-4 mr-2" />
                   View Cases
+                </Button>
+                <Button
+                  variant="default"
+                  className="md:col-span-2"
+                  onClick={() => {
+                    window.open("/api/download/architecture-doc", "_blank");
+                  }}
+                  data-testid="button-download-architecture-doc"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download Architecture & PRD Document
                 </Button>
               </div>
             </div>
