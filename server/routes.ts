@@ -1889,14 +1889,12 @@ Date Opened: 03/15/2023
       // Delete existing violations and analysis data for this report
       try {
         await storage.deleteViolationsByReportId(creditReport.id);
-        console.log(`🗑️  Deleted existing violations for report ${creditReport.id}`);
       } catch (e) {
         console.log(`⚠️  No existing violations to delete`);
       }
       
       try {
         await storage.deleteAnalysisDataByReportId(creditReport.id);
-        console.log(`🗑️  Deleted existing analysis data for report ${creditReport.id}`);
       } catch (e) {
         console.log(`⚠️  No existing analysis data to delete`);
       }

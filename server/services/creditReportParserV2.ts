@@ -260,7 +260,6 @@ async function parseWithRetry(
     : buildUserPrompt(rawText, bureauHint, provider, userId, reportId);
 
   console.log(`🤖 Parsing ${bureauHint} report with AI${isRetry ? ' (RETRY with enhanced prompt)' : ''}...`);
-  console.log(`   Model: ${OPENAI_MODEL}, Prompt length: ${userPrompt.length} chars`);
   console.log(`   Raw text length being sent: ${rawText.length} chars`);
 
   try {
