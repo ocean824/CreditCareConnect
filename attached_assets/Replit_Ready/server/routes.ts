@@ -235,7 +235,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
           
-          console.log(`✓ Analysis completed for report ${creditReport.id}: ${analysis.violations.length} violations created`);
         } catch (error) {
           console.error("Error in background analysis:", error);
           await storage.updateCreditReportAnalysis(creditReport.id, null, "FAILED");
