@@ -1,0 +1,21 @@
+
+> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+
+[1G[0K[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCannot start service: Host version "0.27.4" does not match binary version "0.25.9"[0m
+
+1 error
+
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+Error [TransformError]: The service was stopped
+    at [90m/home/runner/workspace/[39mnode_modules/[4mtsx[24m/node_modules/[4mesbuild[24m/lib/main.js:999:38
+    at responseCallbacks.<computed> [90m(/home/runner/workspace/[39mnode_modules/[4mtsx[24m/node_modules/[4mesbuild[24m/lib/main.js:884:9[90m)[39m
+    at Socket.afterClose [90m(/home/runner/workspace/[39mnode_modules/[4mtsx[24m/node_modules/[4mesbuild[24m/lib/main.js:875:28[90m)[39m
+[90m    at Socket.emit (node:events:536:35)[39m
+[90m    at endReadableNT (node:internal/streams/readable:1698:12)[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:82:21)[39m
+
+Node.js v20.20.0
+[1G[0K⠙[1G[0K

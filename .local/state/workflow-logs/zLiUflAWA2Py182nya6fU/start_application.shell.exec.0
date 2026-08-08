@@ -1,0 +1,12 @@
+
+> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+
+[1G[0K[express] Health check server listening on port 5000
+Click2Mail API key not configured
+✅ Using Replit AI Integrations for credit analysis
+📝 Session config: NODE_ENV=development, isProduction=false
+Re-optimizing dependencies because lockfile has changed
+6:28:38 PM [express] serving on port 5000
+6:28:38 PM [express] Database connection verified
+6:28:38 PM [express] Promoted jarred@anunlimitedllc.com to admin
